@@ -253,12 +253,18 @@ def fetch_live_quote(ticker: str) -> dict:
 @st.cache_data(ttl=900, show_spinner=False)   # 15-min cache for history
 def fetch_history(ticker: str, period: str = "5y", interval: str = "1d") -> pd.DataFrame:
     try:
-        t = yf.Ticker(ticker)
+        t  = yf.Ticker(ticker)
         df = t.history(period=period, interval=interval, auto_adjust=True)
-        df.index = pd.to_datetime(df.index).tz_localize(None)
+        if df.empty:
+            return pd.DataFrame()
+        # Safely strip timezone — handle both tz-aware and tz-naive indexes
+        if hasattr(df.index, "tz") and df.index.tz is not None:
+            df.index = df.index.tz_convert("UTC").tz_localize(None)
+        else:
+            df.index = pd.to_datetime(df.index)
         df = df[["Open","High","Low","Close","Volume"]].dropna()
         return df
-    except:
+    except Exception:
         return pd.DataFrame()
 
 
