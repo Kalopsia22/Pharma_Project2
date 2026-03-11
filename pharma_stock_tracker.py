@@ -653,21 +653,60 @@ def run_all_predictions(ticker: str, years_ahead: int = 25) -> dict:
         qlo_model.fit(Xtr_s, ytr, verbose=False)
         qhi_model.fit(Xtr_s, ytr, verbose=False)
 
-        # MC rollout with quantile-aware noise
-        xgb_paths = []
-        for _ in range(600):
-            cur_lp = list(lp[-window:])
-            path   = []
-            for _ in range(n_days):
-                feat_s = scaler_x.transform(make_features(np.array(cur_lp[-window:])).reshape(1,-1))
-                pred_r = float(model_xgb.predict(feat_s)[0])
-                noise  = np.random.normal(0, resid_std)
-                new_lp = cur_lp[-1] + pred_r + noise
-                cur_lp.append(new_lp)
-                path.append(np.exp(new_lp))
-            xgb_paths.append(path)
+        # Vectorized feature generation for rollout
+        def make_features_vec(w_arr):
+            rets = np.diff(w_arr, axis=1)
+            f0 = w_arr[:, -1] - w_arr[:, -5]
+            f1 = w_arr[:, -1] - w_arr[:, -20]
+            f2 = w_arr[:, -1] - w_arr[:, -60]
+            f3 = np.std(rets[:, -5:], axis=1)
+            f4 = np.std(rets[:, -20:], axis=1)
+            f5 = np.std(rets[:, -60:], axis=1)
+            f6 = np.mean(rets[:, -5:], axis=1)
+            f7 = np.mean(rets[:, -20:], axis=1)
+            f8 = np.mean(rets[:, -60:], axis=1)
 
-        xgb_arr = np.array(xgb_paths)
+            w_min = w_arr.min(axis=1)
+            w_max = w_arr.max(axis=1)
+            f9 = (w_arr[:, -1] - w_min) / (w_max - w_min + 1e-8)
+
+            x20 = np.arange(20)
+            x20_mean = x20.mean()
+            x20_var = ((x20 - x20_mean)**2).sum()
+            y20 = w_arr[:, -20:]
+            y20_mean = y20.mean(axis=1, keepdims=True)
+            cov20 = ((x20 - x20_mean) * (y20 - y20_mean)).sum(axis=1)
+            f10 = cov20 / x20_var
+
+            x60 = np.arange(60)
+            x60_mean = x60.mean()
+            x60_var = ((x60 - x60_mean)**2).sum()
+            y60 = w_arr
+            y60_mean = y60.mean(axis=1, keepdims=True)
+            cov60 = ((x60 - x60_mean) * (y60 - y60_mean)).sum(axis=1)
+            f11 = cov60 / x60_var
+
+            f12 = rets[:, -1]
+            f13 = rets[:, -2] if rets.shape[1] > 1 else np.zeros(w_arr.shape[0])
+            f14 = np.sum(rets[:, -5:] > 0, axis=1) / 5.0
+
+            return np.column_stack([f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14])
+
+        # MC rollout with quantile-aware noise (Vectorized)
+        N_PATHS = 600
+        cur_lp_arr = np.tile(lp[-window:], (N_PATHS, 1))
+        xgb_paths = np.zeros((N_PATHS, n_days))
+
+        for d in range(n_days):
+            feats = make_features_vec(cur_lp_arr)
+            feats_s = scaler_x.transform(feats)
+            pred_r = model_xgb.predict(feats_s)
+            noise = np.random.normal(0, resid_std, N_PATHS)
+            new_lp = cur_lp_arr[:, -1] + pred_r + noise
+            xgb_paths[:, d] = np.exp(new_lp)
+            cur_lp_arr = np.column_stack([cur_lp_arr[:, 1:], new_lp])
+
+        xgb_arr = xgb_paths
         results["XGBoost"] = {
             "mean":        np.median(xgb_arr, axis=0),
             "lo":          np.percentile(xgb_arr, 10, axis=0),
@@ -776,7 +815,7 @@ def run_all_predictions(ticker: str, years_ahead: int = 25) -> dict:
             # 1. Variable Selection Network
             flat  = X_batch.reshape(B * SEQ, n_feat)           # (B*T, F)
             proj  = elu_fn(flat @ W_vsn.T + b_vsn)             # (B*T, D)
-            sel   = flat @ W_sel.T + b_sel                     # (B*T, F)
+            sel   = proj @ W_sel.T + b_sel                     # (B*T, F)
             sel   = np.exp(sel - sel.max(-1, keepdims=True))
             sel  /= sel.sum(-1, keepdims=True)                  # softmax (B*T, F)
             # Weight original features through selection, project to D
@@ -819,15 +858,15 @@ def run_all_predictions(ticker: str, years_ahead: int = 25) -> dict:
             L = np.where(e >= 0, QUANTILES * e, (QUANTILES - 1) * e)
             return L.mean()
 
-        # ── Numerical gradient update (finite differences, fast) ─────────────
-        # We use AdaGrad accumulators for adaptive LR
+        # ── Numerical gradient update (SPSA, ultra-fast) ─────────────
+        # We use AdaGrad accumulators for adaptive LR with Simultaneous Perturbation Stochastic Approximation
         PARAMS = [W_vsn,b_vsn,W_sel,b_sel,
                   W_grn1a,b_grn1a,W_grn1b,b_grn1b,W_grn1g,b_grn1g,
                   W_grn2a,b_grn2a,W_grn2b,b_grn2b,W_grn2g,b_grn2g,
                   W_Q,W_K,W_V,W_O,b_O,W_out,b_out]
         ADA = [np.ones_like(p) * 0.01 for p in PARAMS]
         EPS_ADAM = 1e-7
-        h_diff = 1e-4
+        c = 1e-3
 
         n_tr = len(Xtr_t)
         for ep in range(EPOCHS):
@@ -836,33 +875,25 @@ def run_all_predictions(ticker: str, years_ahead: int = 25) -> dict:
                 bi    = idx[start:start+BATCH]
                 Xb    = Xtr_t[bi]
                 yb    = ytr_t[bi]
-                loss0 = pinball_loss(tft_forward(Xb), yb)
 
-                for pi, p in enumerate(PARAMS):
-                    if p.size > 200:
-                        # Sample-based gradient: perturb 30 random elements
-                        flat_p = p.ravel()
-                        chosen = rng.choice(len(flat_p), size=min(30, len(flat_p)), replace=False)
-                        for ci in chosen:
-                            orig = flat_p[ci]
-                            flat_p[ci] = orig + h_diff
-                            loss_plus = pinball_loss(tft_forward(Xb), yb)
-                            g = (loss_plus - loss0) / h_diff
-                            flat_p[ci] = orig
-                            ADA[pi].ravel()[ci] += g**2
-                            flat_p[ci] -= LR * g / (np.sqrt(ADA[pi].ravel()[ci]) + EPS_ADAM)
-                    else:
-                        # Small param: full finite-diff gradient
-                        flat_p = p.ravel()
-                        grad   = np.zeros_like(flat_p)
-                        for ci in range(len(flat_p)):
-                            orig = flat_p[ci]
-                            flat_p[ci] = orig + h_diff
-                            loss_plus = pinball_loss(tft_forward(Xb), yb)
-                            flat_p[ci] = orig
-                            grad[ci] = (loss_plus - loss0) / h_diff
-                        ADA[pi] += grad**2
-                        flat_p -= LR * grad / (np.sqrt(ADA[pi].ravel()) + EPS_ADAM)
+                deltas = [np.sign(rng.standard_normal(p.shape)) for p in PARAMS]
+
+                # Perturb +
+                for p, d in zip(PARAMS, deltas):
+                    p += c * d
+                loss_plus = pinball_loss(tft_forward(Xb), yb)
+
+                # Perturb -
+                for p, d in zip(PARAMS, deltas):
+                    p -= 2 * c * d
+                loss_minus = pinball_loss(tft_forward(Xb), yb)
+
+                # Restore and update
+                for pi, (p, d) in enumerate(zip(PARAMS, deltas)):
+                    p += c * d # restore
+                    g = (loss_plus - loss_minus) / (2 * c * d)
+                    ADA[pi] += g**2
+                    p -= LR * g / (np.sqrt(ADA[pi]) + EPS_ADAM)
 
         # ── Residual std on test set (P50 head) ───────────────────────────────
         te_preds  = tft_forward(Xte_t)               # (N_te, 3)
