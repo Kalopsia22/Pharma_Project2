@@ -361,7 +361,7 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
 # ML PREDICTION ENGINE
 # ══════════════════════════════════════════════════════════════════════════════╝
 @st.cache_data(ttl=86400, show_spinner=False)   # cache predictions 24h
-def run_all_predictions(ticker: str, years_ahead: int = 25) -> dict:
+def run_all_predictions(ticker: str, years_ahead: int = 5) -> dict:
     """
     6-model prediction engine — all pure numpy/sklearn/statsmodels/prophet/xgboost.
     No PyTorch / TensorFlow. Runs on Streamlit Cloud free tier.
@@ -402,17 +402,15 @@ def run_all_predictions(ticker: str, years_ahead: int = 25) -> dict:
         })
 
         m = Prophet(
-            growth            = "linear",
-            changepoint_prior_scale   = 0.15,   # flexible trend
-            seasonality_prior_scale   = 0.1,
-            yearly_seasonality = True,
-            weekly_seasonality = True,
-            daily_seasonality  = False,
-            interval_width     = 0.80,          # 80% CI
-            uncertainty_samples= 800,
+            growth                  = "linear",
+            changepoint_prior_scale = 0.15,
+            seasonality_prior_scale = 0.1,
+            yearly_seasonality      = True,
+            weekly_seasonality      = False,  # not useful for stocks
+            daily_seasonality       = False,
+            interval_width          = 0.80,
+            uncertainty_samples     = 0,      # MAP only — skips slow MCMC sampling
         )
-        # Add Indian market custom seasonality (budget cycle ~Feb)
-        m.add_seasonality(name="budget_cycle", period=365.25, fourier_order=3)
         m.fit(prophet_df)
 
         future_df    = m.make_future_dataframe(periods=n_days, freq="B")
@@ -435,7 +433,7 @@ def run_all_predictions(ticker: str, years_ahead: int = 25) -> dict:
 
         # Monte Carlo fan for CI consistency with other models
         mc_paths = []
-        for _ in range(500):
+        for _ in range(200):
             noise   = np.random.normal(0, resid_p, n_days)
             cumstd  = np.sqrt(np.arange(1, n_days + 1)) * resid_p * 0.02
             path_lp = fc_log_mean + noise + cumstd * np.random.randn()
@@ -464,7 +462,7 @@ def run_all_predictions(ticker: str, years_ahead: int = 25) -> dict:
         from sklearn.preprocessing import StandardScaler
 
         # Subsample: GPR is O(n³) — use ~600 evenly-spaced points from history
-        n_gp   = min(600, len(prices))
+        n_gp   = min(300, len(prices))
         step_g = max(1, len(prices) // n_gp)
         px_sub = prices[::step_g][-n_gp:]
         t_hist = np.arange(len(px_sub)).reshape(-1, 1).astype(float)
@@ -490,7 +488,7 @@ def run_all_predictions(ticker: str, years_ahead: int = 25) -> dict:
 
         gpr = GaussianProcessRegressor(
             kernel=kernel, alpha=1e-6,
-            n_restarts_optimizer=3, normalize_y=False)
+            n_restarts_optimizer=0, normalize_y=False)
         gpr.fit(t_s, y_s)
 
         # Predict on weekly-sampled future (GPR is slow on 6300 points)
@@ -560,7 +558,7 @@ def run_all_predictions(ticker: str, years_ahead: int = 25) -> dict:
         # ── Multi-regime simulation ──────────────────────────────────────────
         # Draw σ from posterior: σ ~ LogNormal(log(σ_ann), 0.2)
         # This captures regime uncertainty over 25 years
-        n_paths = 1000
+        n_paths = 300
         gbm_paths = np.zeros((n_paths, n_days))
         sigma_draws = np.random.lognormal(np.log(sigma_ann), 0.2, n_paths)
         mu_draws    = np.random.normal(mu_ann, sigma_ann / np.sqrt(len(lret_full)), n_paths)
@@ -632,7 +630,7 @@ def run_all_predictions(ticker: str, years_ahead: int = 25) -> dict:
         Xte_s = scaler_x.transform(Xte)
 
         model_xgb = xgb.XGBRegressor(
-            n_estimators=600, max_depth=6, learning_rate=0.02,
+            n_estimators=300, max_depth=6, learning_rate=0.02,
             subsample=0.75, colsample_bytree=0.75,
             min_child_weight=3, gamma=0.1,
             reg_alpha=0.05, reg_lambda=1.0,
@@ -641,21 +639,9 @@ def run_all_predictions(ticker: str, years_ahead: int = 25) -> dict:
 
         resid_std = np.std(yte - model_xgb.predict(Xte_s))
 
-        # Quantile regressors for direct P10/P90 (avoids MC symmetry assumption)
-        qlo_model = xgb.XGBRegressor(
-            n_estimators=300, max_depth=4, learning_rate=0.03,
-            objective="reg:quantileerror", quantile_alpha=0.10,
-            random_state=42, verbosity=0)
-        qhi_model = xgb.XGBRegressor(
-            n_estimators=300, max_depth=4, learning_rate=0.03,
-            objective="reg:quantileerror", quantile_alpha=0.90,
-            random_state=42, verbosity=0)
-        qlo_model.fit(Xtr_s, ytr, verbose=False)
-        qhi_model.fit(Xtr_s, ytr, verbose=False)
-
         # MC rollout with quantile-aware noise
         xgb_paths = []
-        for _ in range(600):
+        for _ in range(150):
             cur_lp = list(lp[-window:])
             path   = []
             for _ in range(n_days):
@@ -698,13 +684,13 @@ def run_all_predictions(ticker: str, years_ahead: int = 25) -> dict:
     # ══════════════════════════════════════════════════════════════════════════
     try:
         # ── Config ────────────────────────────────────────────────────────────
-        LOOKBACK   = 60     # input window (trading days)
-        HORIZON    = 5      # predict 5 days ahead per step (H-step rollout)
-        HIDDEN     = 128    # FC layer width
-        N_BLOCKS   = 3      # blocks per stack
-        POLY_DEG   = 3      # trend polynomial degree
-        N_FOURIER  = 8      # seasonal Fourier harmonics
-        EPOCHS_NB  = 40
+        LOOKBACK   = 60
+        HORIZON    = 5
+        HIDDEN     = 64     # reduced from 128 — still plenty of capacity
+        N_BLOCKS   = 3
+        POLY_DEG   = 3
+        N_FOURIER  = 8
+        EPOCHS_NB  = 15     # reduced from 40
         BATCH_NB   = 256
         LR_NB      = 3e-3
         rng_nb     = np.random.default_rng(42)
@@ -942,7 +928,7 @@ def run_all_predictions(ticker: str, years_ahead: int = 25) -> dict:
         nb_paths = []
         log_rets_full = np.diff(lp_nb)
 
-        for _ in range(500):
+        for _ in range(200):
             window_rets = list(log_rets_full[-LOOKBACK:])
             path_lp     = [lp_nb[-1]]
 
@@ -1024,7 +1010,7 @@ def run_all_predictions(ticker: str, years_ahead: int = 25) -> dict:
     for model_name, data in results.items():
         if "mean" not in data: continue
         ms = {}
-        for yr in [1, 3, 5, 10, 15, 20, 25]:
+        for yr in [1, 2, 3, 4, 5]:
             idx = min(yr * 252 - 1, n_days - 1)
             ms[f"Y+{yr}"] = {
                 "mean": round(float(data["mean"][idx]), 2),
@@ -1145,7 +1131,7 @@ def build_prediction_chart(pred: dict, company: str, show_models: list) -> go.Fi
 
     apply_theme(fig, height=580)
     fig.update_layout(
-        title=dict(text=f"<b>{company}</b> — 25-Year Price Forecast", font=dict(size=15)),
+        title=dict(text=f"<b>{company}</b> — 5-Year Price Forecast", font=dict(size=15)),
         xaxis_title="Year", yaxis_title="Price ₹",
         legend=dict(orientation="h", y=1.05, x=0, xanchor="left"),
         hovermode="x unified")
@@ -1284,7 +1270,7 @@ with st.sidebar:
         "🏠  Market Overview",
         "📊  Live Stock Tracker",
         "🕯️  Candlestick & Technicals",
-        "🔮  25-Year AI Forecast",
+        "🔮  5-Year AI Forecast",
         "🗞️  News & Sentiment",
         "📐  Correlation & Risk",
         "📋  Fundamentals Deep Dive",
@@ -1627,14 +1613,14 @@ elif "Candlestick" in page:
 # PAGE: 25-YEAR AI FORECAST
 # ══════════════════════════════════════════════════════════════════════════════╝
 elif "Forecast" in page:
-    st.markdown(f"<h1 style='font-size:1.8rem;font-weight:700;'>🔮 25-Year AI Forecast — {sel_name}</h1>", unsafe_allow_html=True)
+    st.markdown(f"<h1 style='font-size:1.8rem;font-weight:700;'>🔮 5-Year AI Forecast — {sel_name}</h1>", unsafe_allow_html=True)
 
     st.markdown(f"""
     <div class='alert-box'>
     🧠 Running <b>Prophet</b>, <b>Gaussian Process</b>, <b>MC-GBM</b>, <b>XGBoost</b>,
-    <b>N-BEATS</b> and <b>Ensemble</b> models on full historical data.
-    All models use Monte Carlo simulation (400–1000 paths) for calibrated P10–P90 confidence intervals.
-    First run may take 2–4 minutes. Results cached for 24 hours.
+    <b>N-BEATS</b> and <b>Ensemble</b> on full historical data. 5-year horizon.
+    All models use Monte Carlo simulation (150–300 paths) for P10–P90 confidence intervals.
+    First run ~60–90 seconds. Results cached for 24 hours.
     </div>
     """, unsafe_allow_html=True)
 
@@ -1643,7 +1629,7 @@ elif "Forecast" in page:
         default=["Ensemble","Prophet","MC-GBM"], key="model_select")
 
     with st.spinner(f"Running ML models for {sel_name}... (first run ~3 min)"):
-        pred = run_all_predictions(sel_ticker, years_ahead=25)
+        pred = run_all_predictions(sel_ticker, years_ahead=5)
 
     if "error" in pred:
         st.error(f"Prediction failed: {pred['error']}")
@@ -1664,7 +1650,7 @@ elif "Forecast" in page:
     last_p = pred["last_price"]
     if ens_ms:
         cols_ms = st.columns(5)
-        for col_obj, yr in zip(cols_ms, ["Y+1","Y+3","Y+5","Y+10","Y+25"]):
+        for col_obj, yr in zip(cols_ms, ["Y+1","Y+2","Y+3","Y+4","Y+5"]):
             if yr in ens_ms:
                 v = ens_ms[yr]
                 upside = (v["mean"]/last_p-1)*100
