@@ -1,0 +1,10 @@
+yfinance
+pandas
+numpy
+plotly
+scikit-learn
+statsmodels
+xgboost
+requests
+beautifulsoup4
+lxml
