@@ -361,691 +361,6 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # Volume MA
     df["Vol_MA20"] = df["Volume"].rolling(20).mean()
     return df
-
-
-# ╔══════════════════════════════════════════════════════════════════════════════
-# ML PREDICTION ENGINE
-# ══════════════════════════════════════════════════════════════════════════════╝
-@st.cache_data(ttl=86400, show_spinner=False)   # cache predictions 24h
-def run_all_predictions(ticker: str, years_ahead: int = 5) -> dict:
-    """
-    6-model prediction engine — all pure numpy/sklearn/statsmodels/prophet/xgboost.
-    No PyTorch / TensorFlow. Runs on Streamlit Cloud free tier.
-
-    Models:
-      1. Prophet          — Meta's additive trend + seasonality + changepoints
-      2. Gaussian Process — Sparse RBF kernel, Bayesian uncertainty propagation
-      3. MC-GBM           — Geometric Brownian Motion (quant finance standard)
-      4. XGBoost          — Gradient boosted trees on 15 lag/volatility features
-      5. N-BEATS          — Neural Basis Expansion (M4 winner, trend + seasonal stacks)
-      6. Ensemble         — Inverse-variance weighted combination of all valid models
-    """
-    df = fetch_history(ticker, period="max", interval="1d")
-    if df.empty or len(df) < 252:
-        return {"error": "Insufficient historical data (need ≥1 year)"}
-
-    prices    = df["Close"].values.astype(float)
-    dates_arr = df.index
-    log_ret   = np.diff(np.log(prices))
-    last_date = dates_arr[-1]
-    n_days    = years_ahead * 252
-    future_dates = pd.date_range(
-        start=last_date + timedelta(days=1),
-        periods=n_days, freq="B")
-
-    results = {}
-    np.random.seed(42)
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # 1. PROPHET  — additive decomposition, changepoint detection, yearly cycles
-    # ══════════════════════════════════════════════════════════════════════════
-    try:
-        from prophet import Prophet                                 # pip install prophet
-
-        prophet_df = pd.DataFrame({
-            "ds": dates_arr,
-            "y":  np.log(prices),          # fit on log-price for multiplicative growth
-        })
-
-        m = Prophet(
-            growth                  = "linear",
-            changepoint_prior_scale = 0.15,
-            seasonality_prior_scale = 0.1,
-            yearly_seasonality      = True,
-            weekly_seasonality      = False,  # not useful for stocks
-            daily_seasonality       = False,
-            interval_width          = 0.80,
-            uncertainty_samples     = 0,      # MAP only — skips slow MCMC sampling
-        )
-        m.fit(prophet_df)
-
-        future_df    = m.make_future_dataframe(periods=n_days, freq="B")
-        forecast_df  = m.predict(future_df)
-
-        # Slice to future only
-        fc_future    = forecast_df[forecast_df["ds"] > last_date].reset_index(drop=True)
-        fc_log_mean  = fc_future["yhat"].values
-        fc_log_lo    = fc_future["yhat_lower"].values
-        fc_log_hi    = fc_future["yhat_upper"].values
-
-        # Back-transform from log-space
-        p_mean = np.exp(fc_log_mean)
-        p_lo   = np.exp(fc_log_lo)
-        p_hi   = np.exp(fc_log_hi)
-
-        # Compute residual std on in-sample fit for smearing correction
-        insample = forecast_df[forecast_df["ds"] <= last_date]
-        resid_p  = np.std(prophet_df["y"].values - insample["yhat"].values[-len(prophet_df):])
-
-        # Monte Carlo fan for CI consistency with other models
-        mc_paths = []
-        for _ in range(200):
-            noise   = np.random.normal(0, resid_p, n_days)
-            cumstd  = np.sqrt(np.arange(1, n_days + 1)) * resid_p * 0.02
-            path_lp = fc_log_mean + noise + cumstd * np.random.randn()
-            mc_paths.append(np.exp(path_lp))
-        mc_arr = np.array(mc_paths)
-
-        results["Prophet"] = {
-            "mean":  np.median(mc_arr, axis=0),
-            "lo":    np.percentile(mc_arr, 10, axis=0),
-            "hi":    np.percentile(mc_arr, 90, axis=0),
-            "changepoints": len(m.changepoints),
-            "color": "#F97316",     # orange
-        }
-    except Exception as e:
-        results["Prophet"] = {"error": str(e)}
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # 2. GAUSSIAN PROCESS REGRESSION  — sparse RBF + periodic kernel
-    #    Bayesian posterior gives calibrated uncertainty that widens with horizon
-    # ══════════════════════════════════════════════════════════════════════════
-    try:
-        from sklearn.gaussian_process import GaussianProcessRegressor
-        from sklearn.gaussian_process.kernels import (
-            RBF, ConstantKernel as C, WhiteKernel, ExpSineSquared, DotProduct
-        )
-        from sklearn.preprocessing import StandardScaler
-
-        # Subsample: GPR is O(n³) — use ~600 evenly-spaced points from history
-        n_gp   = min(300, len(prices))
-        step_g = max(1, len(prices) // n_gp)
-        px_sub = prices[::step_g][-n_gp:]
-        t_hist = np.arange(len(px_sub)).reshape(-1, 1).astype(float)
-
-        lp_sub = np.log(px_sub)
-        sc_t   = StandardScaler().fit(t_hist)
-        sc_y   = StandardScaler().fit(lp_sub.reshape(-1, 1))
-        t_s    = sc_t.transform(t_hist)
-        y_s    = sc_y.transform(lp_sub.reshape(-1, 1)).ravel()
-
-        # Composite kernel:
-        #   C * RBF          — smooth long-term trend
-        #   C * ExpSineSq    — yearly cycle (≈252 trading days)
-        #   C * DotProduct   — linear growth component
-        #   WhiteKernel      — observation noise
-        k_trend    = C(1.0, (0.1, 10)) * RBF(length_scale=50, length_scale_bounds=(5, 500))
-        k_seasonal = C(0.3, (0.01, 5)) * ExpSineSquared(
-                        length_scale=1.0, periodicity=1.0,
-                        periodicity_bounds=(0.5, 2.0))
-        k_linear   = C(0.5, (0.05, 5)) * DotProduct(sigma_0=0.1)
-        k_noise    = WhiteKernel(noise_level=0.05, noise_level_bounds=(1e-4, 1.0))
-        kernel     = k_trend + k_seasonal + k_linear + k_noise
-
-        gpr = GaussianProcessRegressor(
-            kernel=kernel, alpha=1e-6,
-            n_restarts_optimizer=0, normalize_y=False)
-        gpr.fit(t_s, y_s)
-
-        # Predict on weekly-sampled future (GPR is slow on 6300 points)
-        week_step     = 5
-        t_future_raw  = np.arange(len(px_sub),
-                            len(px_sub) + n_days, week_step).reshape(-1, 1).astype(float)
-        t_future_s    = sc_t.transform(t_future_raw)
-
-        y_pred_s, y_std_s = gpr.predict(t_future_s, return_std=True)
-
-        # Back-transform: E[exp(Y)] = exp(μ + σ²/2) for lognormal
-        y_pred_lp = sc_y.inverse_transform(y_pred_s.reshape(-1, 1)).ravel()
-        y_std_lp  = y_std_s * sc_y.scale_[0]
-
-        # Propagate uncertainty — std grows with sqrt(horizon) per random-walk theory
-        horizon_factor = np.sqrt(np.arange(1, len(y_pred_lp) + 1) / 252) * 0.12
-        total_std      = np.sqrt(y_std_lp**2 + horizon_factor**2)
-
-        gp_mean_w = np.exp(y_pred_lp + 0.5 * total_std**2)   # lognormal mean correction
-        gp_lo_w   = np.exp(y_pred_lp - 1.282 * total_std)     # P10
-        gp_hi_w   = np.exp(y_pred_lp + 1.282 * total_std)     # P90
-
-        # Upsample back to daily via linear interp
-        daily_idx   = np.arange(n_days)
-        weekly_idx  = np.arange(0, n_days, week_step)
-        gp_mean_d   = np.interp(daily_idx, weekly_idx, gp_mean_w[:len(weekly_idx)])
-        gp_lo_d     = np.interp(daily_idx, weekly_idx, gp_lo_w[:len(weekly_idx)])
-        gp_hi_d     = np.interp(daily_idx, weekly_idx, gp_hi_w[:len(weekly_idx)])
-
-        results["GPR"] = {
-            "mean":   gp_mean_d,
-            "lo":     gp_lo_d,
-            "hi":     gp_hi_d,
-            "kernel": str(gpr.kernel_),
-            "color":  "#06B6D4",    # cyan
-        }
-    except Exception as e:
-        results["GPR"] = {"error": str(e)}
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # 3. MONTE CARLO GEOMETRIC BROWNIAN MOTION  — quant finance standard
-    #    dS = μS dt + σS dW   (Itô's lemma → log-normal returns)
-    #    μ and σ estimated from EWMA of historical log-returns
-    # ══════════════════════════════════════════════════════════════════════════
-    try:
-        # ── Regime-aware drift & volatility via EWMA ──────────────────────────
-        # Use last 5Y of returns for drift, but annualise vol from last 252D
-        # (short window captures current regime better)
-        lret_full  = log_ret
-        lret_short = log_ret[-252:]   # 1 year for vol
-
-        # EWMA volatility (λ = 0.94, RiskMetrics standard)
-        lmb = 0.94
-        ewma_var = np.zeros(len(lret_short))
-        ewma_var[0] = lret_short[0]**2
-        for i in range(1, len(lret_short)):
-            ewma_var[i] = lmb * ewma_var[i-1] + (1-lmb) * lret_short[i]**2
-        sigma_daily = np.sqrt(ewma_var[-1])           # current EWMA vol
-        sigma_ann   = sigma_daily * np.sqrt(252)
-
-        # Long-run drift from full history (geometric mean)
-        mu_daily  = np.mean(lret_full)                # expected log-return
-        mu_ann    = mu_daily * 252
-
-        dt = 1 / 252    # 1 trading day
-
-        # ── Multi-regime simulation ──────────────────────────────────────────
-        # Draw σ from posterior: σ ~ LogNormal(log(σ_ann), 0.2)
-        # This captures regime uncertainty over 25 years
-        n_paths = 300
-        gbm_paths = np.zeros((n_paths, n_days))
-        sigma_draws = np.random.lognormal(np.log(sigma_ann), 0.2, n_paths)
-        mu_draws    = np.random.normal(mu_ann, sigma_ann / np.sqrt(len(lret_full)), n_paths)
-
-        for i in range(n_paths):
-            mu_i  = mu_draws[i]
-            sig_i = sigma_draws[i]
-            # Jump-diffusion: rare large shocks (Poisson λ=2/yr, size~N(0,σ_jump))
-            jumps = np.random.poisson(2 / 252, n_days)     # ~2 jumps/year
-            jump_sizes = np.random.normal(0, sig_i * 1.5, n_days) * jumps
-            Z     = np.random.standard_normal(n_days)
-            lrets = (mu_i - 0.5 * sig_i**2) * dt + sig_i * np.sqrt(dt) * Z + jump_sizes
-            gbm_paths[i] = prices[-1] * np.exp(np.cumsum(lrets))
-
-        results["MC-GBM"] = {
-            "mean":       np.median(gbm_paths, axis=0),
-            "lo":         np.percentile(gbm_paths, 10, axis=0),
-            "hi":         np.percentile(gbm_paths, 90, axis=0),
-            "mu_ann":     round(mu_ann * 100, 2),
-            "sigma_ann":  round(sigma_ann * 100, 2),
-            "color":      "#10B981",    # emerald
-        }
-    except Exception as e:
-        results["MC-GBM"] = {"error": str(e)}
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # 4. XGBOOST  — gradient boosted trees on 15 engineered features
-    # ══════════════════════════════════════════════════════════════════════════
-    try:
-        import xgboost as xgb
-        from sklearn.preprocessing import RobustScaler
-
-        lp       = np.log(prices)
-        window   = 60   # 60-day lookback (increased from 30)
-
-        def make_features(w):
-            """15 features from a 60-day log-price window."""
-            rets  = np.diff(w)
-            return np.array([
-                w[-1] - w[-5],              # 5D momentum
-                w[-1] - w[-20],             # 20D momentum
-                w[-1] - w[-60],             # 60D momentum
-                np.std(rets[-5:]),          # 5D realised vol
-                np.std(rets[-20:]),         # 20D realised vol
-                np.std(rets[-60:]),         # 60D realised vol
-                np.mean(rets[-5:]),         # 5D mean return
-                np.mean(rets[-20:]),        # 20D mean return
-                np.mean(rets[-60:]),        # 60D mean return
-                (w[-1]-w.min())/(w.max()-w.min()+1e-8),  # position in range
-                np.polyfit(np.arange(20), w[-20:], 1)[0],# 20D linear slope
-                np.polyfit(np.arange(60), w, 1)[0],      # 60D linear slope
-                rets[-1],                   # last return
-                rets[-2] if len(rets)>1 else 0,
-                np.sum(rets[-5:] > 0) / 5, # fraction positive 5D
-            ])
-
-        X_rows, y_rows = [], []
-        for i in range(window + 1, len(lp)):
-            X_rows.append(make_features(lp[i-window:i]))
-            y_rows.append(lp[i] - lp[i-1])
-
-        X_arr = np.array(X_rows); y_arr = np.array(y_rows)
-        split = int(len(X_arr) * 0.85)
-        Xtr, Xte = X_arr[:split], X_arr[split:]
-        ytr, yte = y_arr[:split], y_arr[split:]
-
-        scaler_x = RobustScaler().fit(Xtr)
-        Xtr_s = scaler_x.transform(Xtr)
-        Xte_s = scaler_x.transform(Xte)
-
-        model_xgb = xgb.XGBRegressor(
-            n_estimators=300, max_depth=6, learning_rate=0.02,
-            subsample=0.75, colsample_bytree=0.75,
-            min_child_weight=3, gamma=0.1,
-            reg_alpha=0.05, reg_lambda=1.0,
-            random_state=42, verbosity=0)
-        model_xgb.fit(Xtr_s, ytr, eval_set=[(Xte_s, yte)], verbose=False)
-
-        resid_std = np.std(yte - model_xgb.predict(Xte_s))
-
-        # MC rollout with quantile-aware noise
-        xgb_paths = []
-        for _ in range(150):
-            cur_lp = list(lp[-window:])
-            path   = []
-            for _ in range(n_days):
-                feat_s = scaler_x.transform(make_features(np.array(cur_lp[-window:])).reshape(1,-1))
-                pred_r = float(model_xgb.predict(feat_s)[0])
-                noise  = np.random.normal(0, resid_std)
-                new_lp = cur_lp[-1] + pred_r + noise
-                cur_lp.append(new_lp)
-                path.append(np.exp(new_lp))
-            xgb_paths.append(path)
-
-        xgb_arr = np.array(xgb_paths)
-        results["XGBoost"] = {
-            "mean":        np.median(xgb_arr, axis=0),
-            "lo":          np.percentile(xgb_arr, 10, axis=0),
-            "hi":          np.percentile(xgb_arr, 90, axis=0),
-            "feature_imp": model_xgb.feature_importances_,
-            "color":       BLUE,
-        }
-    except Exception as e:
-        results["XGBoost"] = {"error": str(e)}
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # 5. N-BEATS  (Neural Basis Expansion Analysis for Time Series)
-    #    Winner of the M4 forecasting competition (Oreshkin et al., 2019)
-    #
-    #    Architecture — two stacks of blocks, each block:
-    #      FC(lookback→hidden) → FC → FC → FC
-    #         → basis expansion: θ_b (backcast) + θ_f (forecast)
-    #         → doubly-residual learning: subtract backcast from input
-    #
-    #    Two stack types:
-    #      • Trend stack    — polynomial basis  (degree 3)
-    #      • Seasonal stack — Fourier basis (K harmonics)
-    #
-    #    Key advantage: FULLY VECTORISED with numpy matmul — no finite
-    #    differences, no loops over parameters. Trains in ~20–40 seconds.
-    #    Uses analytical gradients via the chain rule stored in the forward
-    #    pass and applied in a single backward sweep per mini-batch.
-    # ══════════════════════════════════════════════════════════════════════════
-    try:
-        # ── Config ────────────────────────────────────────────────────────────
-        LOOKBACK   = 60
-        HORIZON    = 5
-        HIDDEN     = 64     # reduced from 128 — still plenty of capacity
-        N_BLOCKS   = 3
-        POLY_DEG   = 3
-        N_FOURIER  = 8
-        EPOCHS_NB  = 15     # reduced from 40
-        BATCH_NB   = 256
-        LR_NB      = 3e-3
-        rng_nb     = np.random.default_rng(42)
-
-        lp_nb = np.log(prices)
-
-        # ── Normalise by dividing each window by its last value (instance norm) ─
-        # This is the N-BEATS normalisation that enables zero-shot generalisation
-
-        # Build (X, y) pairs on log-returns for stationarity
-        log_rets_nb = np.diff(lp_nb)   # (T-1,)
-        X_nb, Y_nb  = [], []
-        for i in range(LOOKBACK, len(log_rets_nb) - HORIZON + 1):
-            x_win = log_rets_nb[i - LOOKBACK : i]          # (LOOKBACK,)
-            y_win = log_rets_nb[i : i + HORIZON]            # (HORIZON,)
-            # Instance normalisation: divide by std of window
-            std_w = np.std(x_win) + 1e-8
-            X_nb.append(x_win / std_w)
-            Y_nb.append(y_win / std_w)
-        X_nb = np.array(X_nb)   # (N, LOOKBACK)
-        Y_nb = np.array(Y_nb)   # (N, HORIZON)
-
-        split_nb   = int(len(X_nb) * 0.85)
-        Xtr_nb, Xte_nb = X_nb[:split_nb], X_nb[split_nb:]
-        Ytr_nb, Yte_nb = Y_nb[:split_nb], Y_nb[split_nb:]
-
-        # ── Basis matrices (fixed, computed once) ─────────────────────────────
-        # Trend: polynomial basis for backcast (LOOKBACK) and forecast (HORIZON)
-        t_b = np.linspace(-1, 1, LOOKBACK)    # (LOOKBACK,)
-        t_f = np.linspace(0,  1, HORIZON)     # (HORIZON,)
-        T_back  = np.stack([t_b**d for d in range(POLY_DEG+1)], axis=1)  # (LB, deg+1)
-        T_fore  = np.stack([t_f**d for d in range(POLY_DEG+1)], axis=1)  # (H,  deg+1)
-
-        # Seasonal: Fourier basis
-        S_back = np.concatenate([
-            np.stack([np.cos(2*np.pi*k*t_b) for k in range(1, N_FOURIER+1)], axis=1),
-            np.stack([np.sin(2*np.pi*k*t_b) for k in range(1, N_FOURIER+1)], axis=1),
-        ], axis=1)   # (LB, 2K)
-        S_fore = np.concatenate([
-            np.stack([np.cos(2*np.pi*k*t_f) for k in range(1, N_FOURIER+1)], axis=1),
-            np.stack([np.sin(2*np.pi*k*t_f) for k in range(1, N_FOURIER+1)], axis=1),
-        ], axis=1)   # (H, 2K)
-
-        TREND_DIM    = POLY_DEG + 1
-        SEASONAL_DIM = 2 * N_FOURIER
-
-        # ── Weight initialisation — He normal ─────────────────────────────────
-        def he_nb(r, c): return rng_nb.standard_normal((r, c)) * np.sqrt(2.0 / r)
-
-        # Each block: 4 FC layers (input→H, H→H, H→H, H→H) + two basis coeff heads
-        # Stack 1: Trend   (N_BLOCKS blocks)
-        # Stack 2: Seasonal(N_BLOCKS blocks)
-        def init_block(basis_dim):
-            return {
-                "W1": he_nb(HIDDEN, LOOKBACK), "b1": np.zeros(HIDDEN),
-                "W2": he_nb(HIDDEN, HIDDEN),   "b2": np.zeros(HIDDEN),
-                "W3": he_nb(HIDDEN, HIDDEN),   "b3": np.zeros(HIDDEN),
-                "W4": he_nb(HIDDEN, HIDDEN),   "b4": np.zeros(HIDDEN),
-                "Wb": he_nb(basis_dim, HIDDEN),"bb": np.zeros(basis_dim),  # backcast θ
-                "Wf": he_nb(basis_dim, HIDDEN),"bf": np.zeros(basis_dim),  # forecast θ
-            }
-
-        trend_blocks    = [init_block(TREND_DIM)    for _ in range(N_BLOCKS)]
-        seasonal_blocks = [init_block(SEASONAL_DIM) for _ in range(N_BLOCKS)]
-        all_stacks      = trend_blocks + seasonal_blocks
-        basis_mats      = (
-            [(T_back, T_fore)] * N_BLOCKS +
-            [(S_back, S_fore)] * N_BLOCKS
-        )
-
-        relu = lambda x: np.maximum(0, x)
-
-        # ── Forward pass for one block ─────────────────────────────────────────
-        def block_forward(x_in, blk, B_back, B_fore):
-            """
-            x_in  : (batch, LOOKBACK)
-            returns: backcast (batch, LOOKBACK), forecast (batch, HORIZON)
-            """
-            h = relu(x_in  @ blk["W1"].T + blk["b1"])   # (B, H)
-            h = relu(h     @ blk["W2"].T + blk["b2"])
-            h = relu(h     @ blk["W3"].T + blk["b3"])
-            h = relu(h     @ blk["W4"].T + blk["b4"])
-            theta_b = h @ blk["Wb"].T + blk["bb"]        # (B, basis_dim)
-            theta_f = h @ blk["Wf"].T + blk["bf"]
-            backcast  = theta_b @ B_back.T                # (B, LOOKBACK)
-            forecast  = theta_f @ B_fore.T                # (B, HORIZON)
-            return backcast, forecast
-
-        # ── Full N-BEATS forward ──────────────────────────────────────────────
-        def nbeats_forward(X_batch):
-            """X_batch: (B, LOOKBACK) → forecast (B, HORIZON)"""
-            residual = X_batch.copy()
-            total_fc = np.zeros((X_batch.shape[0], HORIZON))
-            for blk, (Bb, Bf) in zip(all_stacks, basis_mats):
-                bc, fc  = block_forward(residual, blk, Bb, Bf)
-                residual = residual - bc          # doubly-residual: remove backcast
-                total_fc = total_fc + fc          # accumulate forecasts
-            return total_fc   # (B, HORIZON)
-
-        # ── MSE loss ──────────────────────────────────────────────────────────
-        def mse(pred, target): return np.mean((pred - target)**2)
-
-        # ── Analytical backward pass ──────────────────────────────────────────
-        # We implement proper backprop through the stack using the chain rule.
-        # For each block, the gradient w.r.t. FC weights is computed analytically.
-        # This is O(batch × HIDDEN × LOOKBACK) — fast matrix ops only.
-
-        def block_backward(x_in, blk, B_back, B_fore, d_fc, d_residual):
-            """
-            Compute gradients for one block and return d_x_in for the block below.
-            d_fc       : upstream gradient from forecast head   (B, HORIZON)
-            d_residual : upstream gradient from residual path   (B, LOOKBACK)
-            Returns dict of param gradients and d_x_in
-            """
-            B_sz = x_in.shape[0]
-            # ── Forward cache ─────────────────────────────────────────────────
-            h1 = relu(x_in   @ blk["W1"].T + blk["b1"])
-            h2 = relu(h1     @ blk["W2"].T + blk["b2"])
-            h3 = relu(h2     @ blk["W3"].T + blk["b3"])
-            h4 = relu(h3     @ blk["W4"].T + blk["b4"])
-            theta_b = h4 @ blk["Wb"].T + blk["bb"]
-            theta_f = h4 @ blk["Wf"].T + blk["bf"]
-
-            # ── Forecast head gradients ───────────────────────────────────────
-            # forecast = theta_f @ B_fore.T  →  d_theta_f = d_fc @ B_fore
-            d_theta_f = d_fc @ B_fore                          # (B, basis_dim)
-            d_Wf = d_theta_f.T @ h4 / B_sz
-            d_bf = d_theta_f.mean(0)
-
-            # ── Backcast head gradients ───────────────────────────────────────
-            # backcast = theta_b @ B_back.T  →  d_theta_b = d_residual @ B_back
-            # d_residual flows: upstream (from next block) + backcast path
-            d_theta_b = d_residual @ B_back                    # (B, basis_dim)
-            d_Wb = d_theta_b.T @ h4 / B_sz
-            d_Wb_f_combined = (d_theta_f.T @ h4 + d_theta_b.T @ h4) / B_sz
-            d_Wb = d_theta_b.T @ h4 / B_sz
-
-            # ── Gradient through h4 ───────────────────────────────────────────
-            d_h4 = (d_theta_f @ blk["Wf"] + d_theta_b @ blk["Wb"])  # (B, HIDDEN)
-            d_h4 = d_h4 * (h4 > 0)                                    # ReLU mask
-            d_W4 = d_h4.T @ h3 / B_sz; d_b4 = d_h4.mean(0)
-
-            d_h3 = d_h4 @ blk["W4"]
-            d_h3 = d_h3 * (h3 > 0)
-            d_W3 = d_h3.T @ h2 / B_sz; d_b3 = d_h3.mean(0)
-
-            d_h2 = d_h3 @ blk["W3"]
-            d_h2 = d_h2 * (h2 > 0)
-            d_W2 = d_h2.T @ h1 / B_sz; d_b2 = d_h2.mean(0)
-
-            d_h1 = d_h2 @ blk["W2"]
-            d_h1 = d_h1 * (h1 > 0)
-            d_W1 = d_h1.T @ x_in / B_sz; d_b1 = d_h1.mean(0)
-
-            d_x_in = d_h1 @ blk["W1"]   # gradient to pass to previous block
-
-            grads = {
-                "W1": d_W1, "b1": d_b1, "W2": d_W2, "b2": d_b2,
-                "W3": d_W3, "b3": d_b3, "W4": d_W4, "b4": d_b4,
-                "Wb": d_Wb, "bb": d_bf,    # note: using bf shape for bb (same basis)
-                "Wf": d_Wf, "bf": d_bf,
-            }
-            # Fix: bb grad is separate
-            grads["bb"] = d_theta_b.mean(0)
-            return grads, d_x_in
-
-        # ── Adam optimiser state ──────────────────────────────────────────────
-        adam_m = [{k: np.zeros_like(v) for k,v in blk.items()}
-                  for blk in all_stacks]
-        adam_v = [{k: np.zeros_like(v) for k,v in blk.items()}
-                  for blk in all_stacks]
-        adam_t = 0
-        beta1, beta2, eps_adam = 0.9, 0.999, 1e-8
-
-        # ── Training loop ─────────────────────────────────────────────────────
-        n_tr_nb = len(Xtr_nb)
-        for ep in range(EPOCHS_NB):
-            idx = rng_nb.permutation(n_tr_nb)
-            ep_loss = 0.0
-            n_batches = 0
-            for start in range(0, n_tr_nb, BATCH_NB):
-                bi    = idx[start : start + BATCH_NB]
-                Xb_nb = Xtr_nb[bi]         # (B, LOOKBACK)
-                Yb_nb = Ytr_nb[bi]         # (B, HORIZON)
-
-                # ── Forward with cache ────────────────────────────────────────
-                residuals = [Xb_nb.copy()]          # residual entering each block
-                forecasts = []
-                for blk, (Bb, Bf) in zip(all_stacks, basis_mats):
-                    bc, fc = block_forward(residuals[-1], blk, Bb, Bf)
-                    residuals.append(residuals[-1] - bc)
-                    forecasts.append(fc)
-                total_fc_nb = sum(forecasts)        # (B, HORIZON)
-
-                loss = mse(total_fc_nb, Yb_nb)
-                ep_loss += loss; n_batches += 1
-
-                # ── Backward through stack (reverse order) ────────────────────
-                d_fc_out = 2.0 * (total_fc_nb - Yb_nb) / (Yb_nb.shape[0] * HORIZON)
-                # Each block gets equal share of the forecast gradient
-                d_fc_per_block = d_fc_out / len(all_stacks)
-
-                d_res_next = np.zeros_like(Xb_nb)  # d_residual from stack output
-                adam_t += 1
-
-                for bi_idx in reversed(range(len(all_stacks))):
-                    blk     = all_stacks[bi_idx]
-                    Bb, Bf  = basis_mats[bi_idx]
-                    x_in_b  = residuals[bi_idx]
-
-                    grads, d_x = block_backward(
-                        x_in_b, blk, Bb, Bf,
-                        d_fc_per_block, d_res_next)
-
-                    # d_residual for next (lower) block = d_x_in
-                    d_res_next = d_x
-
-                    # Adam update
-                    for k in blk:
-                        g = grads[k]
-                        adam_m[bi_idx][k] = beta1*adam_m[bi_idx][k] + (1-beta1)*g
-                        adam_v[bi_idx][k] = beta2*adam_v[bi_idx][k] + (1-beta2)*(g**2)
-                        m_hat = adam_m[bi_idx][k] / (1 - beta1**adam_t)
-                        v_hat = adam_v[bi_idx][k] / (1 - beta2**adam_t)
-                        blk[k] -= LR_NB * m_hat / (np.sqrt(v_hat) + eps_adam)
-
-        # ── Test-set residual std ─────────────────────────────────────────────
-        pred_te_nb = nbeats_forward(Xte_nb)         # (N_te, HORIZON)
-        # Denormalise: we normalised by per-window std, so residual is in norm space
-        resid_nb   = float(np.std(Yte_nb - pred_te_nb))
-
-        # ── Monte Carlo rollout ───────────────────────────────────────────────
-        # Slide a LOOKBACK window, predict HORIZON steps, advance, repeat.
-        # Much faster than 1-step rollout: n_days/HORIZON forward passes per path.
-        nb_paths = []
-        log_rets_full = np.diff(lp_nb)
-
-        for _ in range(200):
-            window_rets = list(log_rets_full[-LOOKBACK:])
-            path_lp     = [lp_nb[-1]]
-
-            step = 0
-            while step < n_days:
-                w    = np.array(window_rets[-LOOKBACK:])
-                std_w = np.std(w) + 1e-8
-                w_norm = w / std_w
-
-                # Predict next HORIZON normalised returns
-                pred_norm = nbeats_forward(w_norm[np.newaxis])[0]  # (HORIZON,)
-                pred_rets = pred_norm * std_w                       # denormalise
-
-                for h in range(HORIZON):
-                    if step >= n_days: break
-                    noise = rng_nb.normal(0, resid_nb * std_w)
-                    r     = pred_rets[h] + noise
-                    path_lp.append(path_lp[-1] + r)
-                    window_rets.append(r)
-                    step += 1
-
-            nb_paths.append(np.exp(path_lp[1:n_days+1]))
-
-        nb_arr = np.array(nb_paths)   # (500, n_days)
-        results["N-BEATS"] = {
-            "mean":  np.median(nb_arr, axis=0),
-            "lo":    np.percentile(nb_arr, 10, axis=0),
-            "hi":    np.percentile(nb_arr, 90, axis=0),
-            "color": "#A855F7",    # purple
-            "test_mse": round(float(mse(pred_te_nb, Yte_nb)), 6),
-        }
-    except Exception as e:
-        results["N-BEATS"] = {"error": str(e)}
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # 6. ENSEMBLE  — inverse-variance weighting across all valid models
-    #    Models with tighter uncertainty (smaller CI width) get higher weight.
-    #    This is the statistically optimal combination under independence.
-    # ══════════════════════════════════════════════════════════════════════════
-    valid  = {k: v for k, v in results.items() if "mean" in v}
-    if len(valid) >= 2:
-        # Fixed base weights reflecting typical long-horizon accuracy ranking
-        base_w = {
-            "Prophet":  0.30,   # best calibrated for trend + seasonality
-            "GPR":      0.25,   # rigorous Bayesian uncertainty
-            "MC-GBM":   0.15,   # quant finance standard
-            "XGBoost":  0.20,   # non-linear regime detection
-            "N-BEATS":  0.10,   # neural basis expansion
-        }
-        # Adjust by inverse CI width at Y+5 horizon (1260 trading days)
-        ci_idx   = min(1260, n_days - 1)
-        inv_vars = {}
-        for k, v in valid.items():
-            ci_w = max(v["hi"][ci_idx] - v["lo"][ci_idx], 1e-6)
-            inv_vars[k] = 1.0 / ci_w
-
-        total_inv = sum(inv_vars.values())
-        combined_w = {}
-        for k in valid:
-            bw = base_w.get(k, 0.10)
-            vw = inv_vars[k] / total_inv
-            combined_w[k] = 0.6 * bw + 0.4 * vw          # blend base + CI-adaptive
-
-        total_w  = sum(combined_w[k] for k in valid)
-        ens_mean = sum(combined_w[k] / total_w * valid[k]["mean"] for k in valid)
-        ens_lo   = sum(combined_w[k] / total_w * valid[k]["lo"]   for k in valid)
-        ens_hi   = sum(combined_w[k] / total_w * valid[k]["hi"]   for k in valid)
-
-        results["Ensemble"] = {
-            "mean":    ens_mean,
-            "lo":      ens_lo,
-            "hi":      ens_hi,
-            "weights": {k: round(combined_w[k]/total_w*100, 1) for k in valid},
-            "color":   "#C084FC",
-        }
-
-    # ── Annual milestones ─────────────────────────────────────────────────────
-    milestones = {}
-    for model_name, data in results.items():
-        if "mean" not in data: continue
-        ms = {}
-        for yr in [1, 2, 3, 4, 5]:
-            idx = min(yr * 252 - 1, n_days - 1)
-            ms[f"Y+{yr}"] = {
-                "mean": round(float(data["mean"][idx]), 2),
-                "lo":   round(float(data["lo"][idx]),   2),
-                "hi":   round(float(data["hi"][idx]),   2),
-            }
-        milestones[model_name] = ms
-
-    # ── Downsample to weekly for chart performance ────────────────────────────
-    step = 5
-    chart_dates = future_dates[::step]
-    for model_name, data in results.items():
-        if "mean" in data:
-            sz = min(len(chart_dates), len(data["mean"][::step]))
-            data["dates"]      = chart_dates[:sz]
-            data["mean_chart"] = data["mean"][::step][:sz]
-            data["lo_chart"]   = data["lo"][::step][:sz]
-            data["hi_chart"]   = data["hi"][::step][:sz]
-
-    return {
-        "models":      results,
-        "milestones":  milestones,
-        "last_price":  round(float(prices[-1]), 2),
-        "last_date":   str(last_date.date()),
-        "history_yrs": round(len(df) / 252, 1),
-        "ticker":      ticker,
-    }
-
-
 # ╔══════════════════════════════════════════════════════════════════════════════
 # CHART BUILDERS
 # ══════════════════════════════════════════════════════════════════════════════╝
@@ -1117,6 +432,86 @@ def fmt_number(n, prefix="₹"):
     if n >= 1e7:  return f"{prefix}{n/1e7:.2f}Cr"
     if n >= 1e5:  return f"{prefix}{n/1e5:.2f}L"
     return f"{prefix}{n:,.2f}"
+
+
+def build_rsi_chart(df: pd.DataFrame) -> go.Figure:
+    df_ind = add_indicators(df.tail(365))
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df_ind.index, y=df_ind["RSI"],
+        line=dict(color=ACCENT, width=2), name="RSI(14)",
+        hovertemplate="RSI: %{y:.1f}<extra></extra>"))
+    fig.add_hrect(y0=70, y1=100, fillcolor="rgba(255,75,110,0.08)",
+        line_width=0, annotation_text="Overbought",
+        annotation_font_size=10, annotation_font_color=RED)
+    fig.add_hrect(y0=0, y1=30, fillcolor="rgba(0,200,150,0.08)",
+        line_width=0, annotation_text="Oversold",
+        annotation_font_size=10, annotation_font_color=GREEN)
+    fig.add_hline(y=70, line_dash="dash", line_color=RED,   opacity=0.5)
+    fig.add_hline(y=30, line_dash="dash", line_color=GREEN, opacity=0.5)
+    apply_theme(fig, height=260)
+    fig.update_layout(title="RSI (14-day)", yaxis_range=[0, 100],
+        margin=dict(t=36, b=30, l=50, r=10))
+    return fig
+
+
+def build_returns_dist(df: pd.DataFrame) -> go.Figure:
+    rets = df["Close"].pct_change().dropna() * 100
+    fig  = go.Figure()
+    fig.add_trace(go.Histogram(x=rets, nbinsx=80, name="Daily Returns",
+        marker_color=ACCENT, opacity=0.75))
+    mean_r = rets.mean(); std_r = rets.std()
+    fig.add_vline(x=mean_r, line_dash="dash", line_color=GOLD,
+        annotation_text=f"μ={mean_r:.2f}%")
+    apply_theme(fig, height=280)
+    fig.update_layout(title=f"Daily Return Distribution  |  σ={std_r:.2f}%",
+        xaxis_title="Daily Return %", yaxis_title="Frequency",
+        margin=dict(t=36, b=30))
+    return fig
+
+
+def build_correlation_heatmap(tickers: list, names: list) -> go.Figure:
+    closes = {}
+    for tk, nm in zip(tickers, names):
+        h = fetch_history(tk, period="2y")
+        if not h.empty:
+            closes[nm[:15]] = h["Close"].resample("W").last()
+    if len(closes) < 2:
+        return go.Figure()
+    df_c = pd.DataFrame(closes).dropna()
+    corr = df_c.pct_change().dropna().corr().round(2)
+    fig  = go.Figure(data=go.Heatmap(
+        z=corr.values, x=corr.columns, y=corr.index,
+        colorscale=[[0, RED],[0.5, "#1F2937"],[1, GREEN]],
+        zmin=-1, zmax=1,
+        text=corr.values, texttemplate="%{text:.2f}", textfont=dict(size=9),
+        hovertemplate="<b>%{y} vs %{x}</b><br>r = %{z:.2f}<extra></extra>"))
+    apply_theme(fig, height=500)
+    fig.update_layout(title="Weekly Return Correlation Matrix",
+        margin=dict(t=50, b=80, l=120, r=20),
+        xaxis=dict(tickangle=-35))
+    return fig
+
+
+def build_sector_performance(quotes: dict) -> go.Figure:
+    rows = []
+    for ticker, data in quotes.items():
+        if data.get("price"):
+            name, _, cap_type = PHARMA_COMPANIES[ticker]
+            rows.append({"name": name[:20], "change": data["change_pct"], "cap": cap_type,
+                "price": data["price"], "mktcap": data.get("market_cap", 0) or 0})
+    if not rows:
+        return go.Figure()
+    df_sec = pd.DataFrame(rows).sort_values("change")
+    colors = [GREEN if v >= 0 else RED for v in df_sec["change"]]
+    fig    = go.Figure(go.Bar(
+        y=df_sec["name"], x=df_sec["change"], orientation="h",
+        marker_color=colors,
+        text=[f"{v:+.2f}%" for v in df_sec["change"]], textposition="outside",
+        hovertemplate="<b>%{y}</b><br>%{x:+.2f}%<extra></extra>"))
+    apply_theme(fig, height=max(420, len(rows) * 22))
+    fig.update_layout(title="Today's Performance — All Pharma Stocks",
+        xaxis_title="Change %", margin=dict(t=40, r=80))
+    return fig
 
 
 # ╔══════════════════════════════════════════════════════════════════════════════
