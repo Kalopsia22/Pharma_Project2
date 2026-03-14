@@ -2,7 +2,6 @@
 ╔══════════════════════════════════════════════════════════════════════╗
 ║   INDIAN PHARMA STOCK INTELLIGENCE PLATFORM                         ║
 ║   Live Tracker (NSE + BSE) + 25-Year AI Price Forecast              ║
-║   Models: Prophet · GPR · MC-GBM · XGBoost · N-BEATS · Ensemble    ║
 ╚══════════════════════════════════════════════════════════════════════╝
 Run:  streamlit run pharma_stock_tracker.py
 Deps: pip install streamlit yfinance pandas numpy plotly scikit-learn
@@ -834,13 +833,13 @@ with st.sidebar:
 if "Overview" in page:
     now = datetime.now().strftime("%d %b %Y, %I:%M %p")
     st.markdown(f"""
-    <div class='page-title' style='color:#E8F0FA;font-family:Playfair Display,serif;font-size:1.95rem;font-weight:700;line-height:1.2;margin-bottom:6px;'>🏠 Indian Pharma Market</div>
-    <div class='page-sub' style='color:#7A95B0;font-size:0.83rem;margin-bottom:20px;line-height:1.6;'>
-        Live NSE/BSE tracker · {len(PHARMA_COMPANIES)} listed companies · 
+    <p style='color:#E8F0FA !important;-webkit-text-fill-color:#E8F0FA;font-family:Playfair Display,Georgia,serif;font-size:1.95rem;font-weight:700;line-height:1.2;margin-bottom:6px;display:block;'>🏠 Indian Pharma Market</p>
+    <p style='color:#7A95B0 !important;-webkit-text-fill-color:#7A95B0;font-size:0.83rem;margin-bottom:20px;line-height:1.6;display:block;'>
+        Live NSE/BSE tracker · {len(PHARMA_COMPANIES)} listed companies ·
         <span style='font-family:JetBrains Mono,monospace;color:{TEXT_MUT};font-size:0.80rem;'>
         Updated {now} IST &nbsp;·&nbsp; ~15 min delayed
         </span>
-    </div>
+    </p>
     """, unsafe_allow_html=True)
 
     # ── Index strip ───────────────────────────────────────────────────────────
@@ -953,7 +952,7 @@ if "Overview" in page:
 # PAGE: LIVE STOCK TRACKER
 # ══════════════════════════════════════════════════════════════════════════════╝
 elif "Live Stock" in page:
-    st.markdown(f"<div class='page-title' style='color:#E8F0FA;font-family:Playfair Display,serif;font-size:1.95rem;font-weight:700;line-height:1.2;margin-bottom:6px;'>📊 {sel_name}</div><div class='page-sub' style='color:#7A95B0;font-size:0.83rem;margin-bottom:20px;line-height:1.6;'>Live quote · Fundamentals · Price history · Volume · 52W range</div>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color:#E8F0FA !important;-webkit-text-fill-color:#E8F0FA;font-family:Playfair Display,Georgia,serif;font-size:1.95rem;font-weight:700;line-height:1.2;margin-bottom:6px;display:block;'>📊 {sel_name}</p><p style='color:#7A95B0 !important;-webkit-text-fill-color:#7A95B0;font-size:0.83rem;margin-bottom:20px;line-height:1.6;display:block;'>Live quote · Fundamentals · Price history · Volume · 52W range</p>", unsafe_allow_html=True)
     st.markdown(f"<div style='font-size:0.78rem;color:{TEXT_SEC};margin-bottom:12px;'>{sel_ticker} &nbsp;·&nbsp; NSE &nbsp;·&nbsp; BSE {sel_bse}</div>", unsafe_allow_html=True)
 
     # ── Auto-refresh toggle (no extra package — uses st.rerun) ────────────────
@@ -1170,7 +1169,7 @@ elif "Live Stock" in page:
 # PAGE: CANDLESTICK & TECHNICALS
 # ══════════════════════════════════════════════════════════════════════════════╝
 elif "Candlestick" in page:
-    st.markdown(f"<div class='page-title' style='color:#E8F0FA;font-family:Playfair Display,serif;font-size:1.95rem;font-weight:700;line-height:1.2;margin-bottom:6px;'>🕯️ Technical Analysis</div><div class='page-sub' style='color:#7A95B0;font-size:0.83rem;margin-bottom:20px;line-height:1.6;'>{sel_name} · Candlestick · MACD · Bollinger Bands · RSI · Return Distribution</div>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color:#E8F0FA !important;-webkit-text-fill-color:#E8F0FA;font-family:Playfair Display,Georgia,serif;font-size:1.95rem;font-weight:700;line-height:1.2;margin-bottom:6px;display:block;'>🕯️ Technical Analysis</p><p style='color:#7A95B0 !important;-webkit-text-fill-color:#7A95B0;font-size:0.83rem;margin-bottom:20px;line-height:1.6;display:block;'>{sel_name} · Candlestick · MACD · Bollinger Bands · RSI · Return Distribution</p>", unsafe_allow_html=True)
 
     period_sel = st.radio("Period", ["3mo","6mo","1y","2y"], horizontal=True, key="candle_period", index=1)
     with st.spinner("Building chart..."):
@@ -1234,7 +1233,7 @@ elif "Candlestick" in page:
 # PAGE: PHARMA INTELLIGENCE
 # ══════════════════════════════════════════════════════════════════════════════╝
 elif "Pharma Intel" in page:
-    st.markdown(f"<div class='page-title' style='color:#E8F0FA;font-family:Playfair Display,serif;font-size:1.95rem;font-weight:700;line-height:1.2;margin-bottom:6px;'>🧬 Pharma Intelligence</div><div class='page-sub' style='color:#7A95B0;font-size:0.83rem;margin-bottom:20px;line-height:1.6;'>{sel_name} · Drug Pipeline · Peer Valuation Scorecard · Institutional & FII/DII Holdings</div>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color:#E8F0FA !important;-webkit-text-fill-color:#E8F0FA;font-family:Playfair Display,Georgia,serif;font-size:1.95rem;font-weight:700;line-height:1.2;margin-bottom:6px;display:block;'>🧬 Pharma Intelligence</p><p style='color:#7A95B0 !important;-webkit-text-fill-color:#7A95B0;font-size:0.83rem;margin-bottom:20px;line-height:1.6;display:block;'>{sel_name} · Drug Pipeline · Peer Valuation Scorecard · Institutional & FII/DII Holdings</p>", unsafe_allow_html=True)
     st.markdown(f"<div style='font-size:0.78rem;color:{TEXT_SEC};margin-bottom:18px;'>Drug Pipeline · Peer Valuation · Institutional Holdings · FII/DII Flows</div>", unsafe_allow_html=True)
 
     intel_tab1, intel_tab2, intel_tab3 = st.tabs([
@@ -1927,7 +1926,7 @@ elif "Pharma Intel" in page:
 # PAGE: NEWS & SENTIMENT
 # ══════════════════════════════════════════════════════════════════════════════╝
 elif "News" in page:
-    st.markdown(f"<div class='page-title' style='color:#E8F0FA;font-family:Playfair Display,serif;font-size:1.95rem;font-weight:700;line-height:1.2;margin-bottom:6px;'>🗞️ News & Sentiment</div><div class='page-sub' style='color:#7A95B0;font-size:0.83rem;margin-bottom:20px;line-height:1.6;'>{sel_name} · Headlines · Sentiment scoring · Sector comparison</div>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color:#E8F0FA !important;-webkit-text-fill-color:#E8F0FA;font-family:Playfair Display,Georgia,serif;font-size:1.95rem;font-weight:700;line-height:1.2;margin-bottom:6px;display:block;'>🗞️ News & Sentiment</p><p style='color:#7A95B0 !important;-webkit-text-fill-color:#7A95B0;font-size:0.83rem;margin-bottom:20px;line-height:1.6;display:block;'>{sel_name} · Headlines · Sentiment scoring · Sector comparison</p>", unsafe_allow_html=True)
 
     with st.spinner("Fetching news..."):
         news = fetch_news_sentiment(sel_name)
@@ -2020,7 +2019,7 @@ elif "News" in page:
 # PAGE: CORRELATION & RISK
 # ══════════════════════════════════════════════════════════════════════════════╝
 elif "Correlation" in page:
-    st.markdown(f"<div class='page-title' style='color:#E8F0FA;font-family:Playfair Display,serif;font-size:1.95rem;font-weight:700;line-height:1.2;margin-bottom:6px;'>📐 Correlation & Risk</div><div class='page-sub' style='color:#7A95B0;font-size:0.83rem;margin-bottom:20px;line-height:1.6;'>Weekly return correlation · Sharpe ratio · VaR · Max drawdown · Rolling volatility</div>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color:#E8F0FA !important;-webkit-text-fill-color:#E8F0FA;font-family:Playfair Display,Georgia,serif;font-size:1.95rem;font-weight:700;line-height:1.2;margin-bottom:6px;display:block;'>📐 Correlation & Risk</p><p style='color:#7A95B0 !important;-webkit-text-fill-color:#7A95B0;font-size:0.83rem;margin-bottom:20px;line-height:1.6;display:block;'>Weekly return correlation · Sharpe ratio · VaR · Max drawdown · Rolling volatility</p>", unsafe_allow_html=True)
 
     cap_filter = st.multiselect("Filter by Market Cap",
         ["Large Cap","Mid Cap","Small Cap"],
@@ -2088,7 +2087,7 @@ elif "Correlation" in page:
 # PAGE: FUNDAMENTALS DEEP DIVE
 # ══════════════════════════════════════════════════════════════════════════════╝
 elif "Fundamentals" in page:
-    st.markdown(f"<div class='page-title' style='color:#E8F0FA;font-family:Playfair Display,serif;font-size:1.95rem;font-weight:700;line-height:1.2;margin-bottom:6px;'>📋 Fundamentals</div><div class='page-sub' style='color:#7A95B0;font-size:0.83rem;margin-bottom:20px;line-height:1.6;'>{sel_name} · Valuation · Profitability · Peer comparison · Quarterly financials</div>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color:#E8F0FA !important;-webkit-text-fill-color:#E8F0FA;font-family:Playfair Display,Georgia,serif;font-size:1.95rem;font-weight:700;line-height:1.2;margin-bottom:6px;display:block;'>📋 Fundamentals</p><p style='color:#7A95B0 !important;-webkit-text-fill-color:#7A95B0;font-size:0.83rem;margin-bottom:20px;line-height:1.6;display:block;'>{sel_name} · Valuation · Profitability · Peer comparison · Quarterly financials</p>", unsafe_allow_html=True)
 
     with st.spinner("Loading financials..."):
         q    = fetch_live_quote(sel_ticker)
