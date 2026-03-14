@@ -257,13 +257,28 @@ input, select, textarea {{ background: {CARD_BG} !important; color: {TEXT_PRI} !
 
 /* ── Page title ── */
 .page-title {{
-    font-family:'Playfair Display',serif;
-    font-size:2rem; font-weight:700; color:{TEXT_PRI};
-    letter-spacing:-0.01em; line-height:1.15; margin-bottom:4px;
+    font-family:'Playfair Display',serif !important;
+    font-size:2rem !important; font-weight:700 !important;
+    color:{TEXT_PRI} !important;
+    letter-spacing:-0.01em; line-height:1.2; margin-bottom:6px;
+    display:block;
 }}
 .page-sub {{
-    font-size:0.82rem; color:{TEXT_SEC}; margin-bottom:20px; line-height:1.5;
+    font-size:0.83rem; color:{TEXT_SEC} !important;
+    margin-bottom:22px; line-height:1.6; display:block;
 }}
+
+/* Force Streamlit's own h1 to respect dark theme */
+h1, h2, h3, h4 {{
+    color: {TEXT_PRI} !important;
+}}
+/* Override any Streamlit markdown container color bleed */
+[data-testid="stMarkdownContainer"] p,
+[data-testid="stMarkdownContainer"] div,
+[data-testid="stMarkdownContainer"] span {{
+    color: inherit;
+}}
+.stMarkdown .page-title {{ color: {TEXT_PRI} !important; }}
 
 /* ── Marquee ticker ── */
 .marquee-wrap {{
@@ -819,8 +834,8 @@ with st.sidebar:
 if "Overview" in page:
     now = datetime.now().strftime("%d %b %Y, %I:%M %p")
     st.markdown(f"""
-    <div class='page-title'>🏠 Indian Pharma Market</div>
-    <div class='page-sub'>
+    <div class='page-title' style='color:#E8F0FA;font-family:Playfair Display,serif;font-size:1.95rem;font-weight:700;line-height:1.2;margin-bottom:6px;'>🏠 Indian Pharma Market</div>
+    <div class='page-sub' style='color:#7A95B0;font-size:0.83rem;margin-bottom:20px;line-height:1.6;'>
         Live NSE/BSE tracker · {len(PHARMA_COMPANIES)} listed companies · 
         <span style='font-family:JetBrains Mono,monospace;color:{TEXT_MUT};font-size:0.80rem;'>
         Updated {now} IST &nbsp;·&nbsp; ~15 min delayed
@@ -938,7 +953,7 @@ if "Overview" in page:
 # PAGE: LIVE STOCK TRACKER
 # ══════════════════════════════════════════════════════════════════════════════╝
 elif "Live Stock" in page:
-    st.markdown(f"<div class='page-title'>📊 {sel_name}</div><div class='page-sub'>Live quote · Fundamentals · Price history · Volume · 52W range</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='page-title' style='color:#E8F0FA;font-family:Playfair Display,serif;font-size:1.95rem;font-weight:700;line-height:1.2;margin-bottom:6px;'>📊 {sel_name}</div><div class='page-sub' style='color:#7A95B0;font-size:0.83rem;margin-bottom:20px;line-height:1.6;'>Live quote · Fundamentals · Price history · Volume · 52W range</div>", unsafe_allow_html=True)
     st.markdown(f"<div style='font-size:0.78rem;color:{TEXT_SEC};margin-bottom:12px;'>{sel_ticker} &nbsp;·&nbsp; NSE &nbsp;·&nbsp; BSE {sel_bse}</div>", unsafe_allow_html=True)
 
     # ── Auto-refresh toggle (no extra package — uses st.rerun) ────────────────
@@ -1155,7 +1170,7 @@ elif "Live Stock" in page:
 # PAGE: CANDLESTICK & TECHNICALS
 # ══════════════════════════════════════════════════════════════════════════════╝
 elif "Candlestick" in page:
-    st.markdown(f"<div class='page-title'>🕯️ Technical Analysis</div><div class='page-sub'>{sel_name} · Candlestick · MACD · Bollinger Bands · RSI · Return Distribution</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='page-title' style='color:#E8F0FA;font-family:Playfair Display,serif;font-size:1.95rem;font-weight:700;line-height:1.2;margin-bottom:6px;'>🕯️ Technical Analysis</div><div class='page-sub' style='color:#7A95B0;font-size:0.83rem;margin-bottom:20px;line-height:1.6;'>{sel_name} · Candlestick · MACD · Bollinger Bands · RSI · Return Distribution</div>", unsafe_allow_html=True)
 
     period_sel = st.radio("Period", ["3mo","6mo","1y","2y"], horizontal=True, key="candle_period", index=1)
     with st.spinner("Building chart..."):
@@ -1219,7 +1234,7 @@ elif "Candlestick" in page:
 # PAGE: PHARMA INTELLIGENCE
 # ══════════════════════════════════════════════════════════════════════════════╝
 elif "Pharma Intel" in page:
-    st.markdown(f"<div class='page-title'>🧬 Pharma Intelligence</div><div class='page-sub'>{sel_name} · Drug Pipeline · Peer Valuation Scorecard · Institutional & FII/DII Holdings</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='page-title' style='color:#E8F0FA;font-family:Playfair Display,serif;font-size:1.95rem;font-weight:700;line-height:1.2;margin-bottom:6px;'>🧬 Pharma Intelligence</div><div class='page-sub' style='color:#7A95B0;font-size:0.83rem;margin-bottom:20px;line-height:1.6;'>{sel_name} · Drug Pipeline · Peer Valuation Scorecard · Institutional & FII/DII Holdings</div>", unsafe_allow_html=True)
     st.markdown(f"<div style='font-size:0.78rem;color:{TEXT_SEC};margin-bottom:18px;'>Drug Pipeline · Peer Valuation · Institutional Holdings · FII/DII Flows</div>", unsafe_allow_html=True)
 
     intel_tab1, intel_tab2, intel_tab3 = st.tabs([
@@ -1912,7 +1927,7 @@ elif "Pharma Intel" in page:
 # PAGE: NEWS & SENTIMENT
 # ══════════════════════════════════════════════════════════════════════════════╝
 elif "News" in page:
-    st.markdown(f"<div class='page-title'>🗞️ News & Sentiment</div><div class='page-sub'>{sel_name} · Headlines · Sentiment scoring · Sector comparison</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='page-title' style='color:#E8F0FA;font-family:Playfair Display,serif;font-size:1.95rem;font-weight:700;line-height:1.2;margin-bottom:6px;'>🗞️ News & Sentiment</div><div class='page-sub' style='color:#7A95B0;font-size:0.83rem;margin-bottom:20px;line-height:1.6;'>{sel_name} · Headlines · Sentiment scoring · Sector comparison</div>", unsafe_allow_html=True)
 
     with st.spinner("Fetching news..."):
         news = fetch_news_sentiment(sel_name)
@@ -2005,7 +2020,7 @@ elif "News" in page:
 # PAGE: CORRELATION & RISK
 # ══════════════════════════════════════════════════════════════════════════════╝
 elif "Correlation" in page:
-    st.markdown(f"<div class='page-title'>📐 Correlation & Risk</div><div class='page-sub'>Weekly return correlation · Sharpe ratio · VaR · Max drawdown · Rolling volatility</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='page-title' style='color:#E8F0FA;font-family:Playfair Display,serif;font-size:1.95rem;font-weight:700;line-height:1.2;margin-bottom:6px;'>📐 Correlation & Risk</div><div class='page-sub' style='color:#7A95B0;font-size:0.83rem;margin-bottom:20px;line-height:1.6;'>Weekly return correlation · Sharpe ratio · VaR · Max drawdown · Rolling volatility</div>", unsafe_allow_html=True)
 
     cap_filter = st.multiselect("Filter by Market Cap",
         ["Large Cap","Mid Cap","Small Cap"],
@@ -2073,7 +2088,7 @@ elif "Correlation" in page:
 # PAGE: FUNDAMENTALS DEEP DIVE
 # ══════════════════════════════════════════════════════════════════════════════╝
 elif "Fundamentals" in page:
-    st.markdown(f"<div class='page-title'>📋 Fundamentals</div><div class='page-sub'>{sel_name} · Valuation · Profitability · Peer comparison · Quarterly financials</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='page-title' style='color:#E8F0FA;font-family:Playfair Display,serif;font-size:1.95rem;font-weight:700;line-height:1.2;margin-bottom:6px;'>📋 Fundamentals</div><div class='page-sub' style='color:#7A95B0;font-size:0.83rem;margin-bottom:20px;line-height:1.6;'>{sel_name} · Valuation · Profitability · Peer comparison · Quarterly financials</div>", unsafe_allow_html=True)
 
     with st.spinner("Loading financials..."):
         q    = fetch_live_quote(sel_ticker)
