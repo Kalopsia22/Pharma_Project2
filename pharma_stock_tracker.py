@@ -29,113 +29,254 @@ st.set_page_config(
 )
 
 # ── Design constants ──────────────────────────────────────────────────────────
-GREEN      = "#00C896"
-RED        = "#FF4B6E"
-GOLD       = "#F5A623"
-BLUE       = "#1E90FF"
-DARK_BG    = "#0A0E1A"
-CARD_BG    = "#111827"
-BORDER     = "#1F2937"
-TEXT_PRI   = "#F9FAFB"
-TEXT_SEC   = "#9CA3AF"
-ACCENT     = "#00C896"
-COLORS_10  = ["#00C896","#1E90FF","#F5A623","#FF4B6E","#A78BFA",
-               "#34D399","#60A5FA","#FBBF24","#F87171","#C084FC"]
+GREEN      = "#00D98B"       # phosphor green — up/positive
+RED        = "#FF4B6E"       # coral red     — down/negative
+GOLD       = "#F5A623"       # amber         — warning/neutral
+BLUE       = "#38BFFF"       # electric blue — accent
+PURPLE     = "#A78BFA"       # violet        — secondary accent
+DARK_BG    = "#070B14"       # near-black navy
+CARD_BG    = "#0D1525"       # card surface
+CARD_BG2   = "#111E30"       # elevated card
+BORDER     = "#1A2840"       # subtle border
+BORDER2    = "#243552"       # visible border
+TEXT_PRI   = "#E8F0FA"       # primary text
+TEXT_SEC   = "#7A95B0"       # secondary text
+TEXT_MUT   = "#3D5570"       # muted text
+ACCENT     = "#00D98B"       # = GREEN
+COLORS_10  = ["#38BFFF","#00D98B","#F5A623","#FF4B6E","#A78BFA",
+               "#06D6A0","#FFD166","#EF476F","#74B9FF","#C084FC"]
 
 # ── CSS ───────────────────────────────────────────────────────────────────────
 st.markdown(f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Sora:wght@300;400;600;700&display=swap');
+/* ── Fonts ── */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap');
 
+/* ── Base reset ── */
 html, body, [class*="css"] {{
-    font-family: 'Sora', sans-serif;
+    font-family: 'Space Grotesk', sans-serif;
     background-color: {DARK_BG};
     color: {TEXT_PRI};
+    -webkit-font-smoothing: antialiased;
 }}
 .main {{ background: {DARK_BG}; }}
-.block-container {{ padding-top: 1.2rem; padding-bottom: 2rem; }}
+.block-container {{ padding-top: 1.4rem; padding-bottom: 3rem; max-width: 1440px; }}
 
+/* Subtle dot-grid background */
+.main::before {{
+    content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
+    background-image: radial-gradient(circle, {BORDER} 1px, transparent 1px);
+    background-size: 28px 28px;
+    opacity: 0.45;
+}}
+
+/* ── Sidebar ── */
 section[data-testid="stSidebar"] {{
-    background: #060912 !important;
+    background: linear-gradient(180deg, #050a12 0%, #070d1a 60%, #060b16 100%) !important;
     border-right: 1px solid {BORDER};
 }}
+section[data-testid="stSidebar"]::before {{
+    content:''; position:absolute; top:0; left:0; right:0; height:220px; pointer-events:none;
+    background: radial-gradient(ellipse at 50% 0%, rgba(0,217,139,0.08) 0%, transparent 70%);
+}}
 section[data-testid="stSidebar"] * {{ color: {TEXT_PRI} !important; }}
-section[data-testid="stSidebar"] hr {{ border-color: {BORDER}; }}
+section[data-testid="stSidebar"] hr {{ border-color: {BORDER}; margin: 12px 0; }}
+section[data-testid="stSidebar"] .stRadio label {{
+    font-size: 0.875rem !important; padding: 4px 0;
+    color: {TEXT_SEC} !important;
+    transition: color 0.15s;
+}}
+section[data-testid="stSidebar"] p {{ color: {TEXT_SEC} !important; font-size: 0.82rem !important; }}
 
-/* Ticker card */
+/* ── Ticker card ── */
 .ticker-card {{
-    background: {CARD_BG};
+    background: linear-gradient(135deg, {CARD_BG} 0%, {CARD_BG2} 100%);
     border: 1px solid {BORDER};
-    border-radius: 12px;
+    border-radius: 14px;
     padding: 16px 18px;
     margin-bottom: 8px;
+    position: relative; overflow: hidden;
+    transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s;
+}}
+.ticker-card:hover {{
+    border-color: {ACCENT}; transform: translateY(-1px);
+    box-shadow: 0 6px 24px rgba(0,217,139,0.10);
+}}
+.ticker-card::after {{
+    content:''; position:absolute; bottom:0; left:0; right:0; height:2px;
+    background: linear-gradient(90deg, transparent, rgba(56,191,255,0.15), transparent);
+}}
+.ticker-name {{
+    font-family:'JetBrains Mono',monospace;
+    font-size:0.70rem; color:{TEXT_MUT}; font-weight:600;
+    letter-spacing:0.12em; text-transform:uppercase; margin-bottom:4px;
+}}
+.ticker-price {{
+    font-family:'JetBrains Mono',monospace;
+    font-size:1.55rem; font-weight:700; color:{TEXT_PRI}; line-height:1.1;
+}}
+.ticker-change-up   {{
+    font-family:'JetBrains Mono',monospace; font-size:0.85rem;
+    color:{GREEN}; font-weight:600;
+    background: rgba(0,217,139,0.10); padding:2px 8px; border-radius:5px;
+    display:inline-block; margin-top:3px;
+}}
+.ticker-change-down {{
+    font-family:'JetBrains Mono',monospace; font-size:0.85rem;
+    color:{RED}; font-weight:600;
+    background: rgba(255,75,110,0.10); padding:2px 8px; border-radius:5px;
+    display:inline-block; margin-top:3px;
+}}
+.ticker-meta {{ font-size:0.71rem; color:{TEXT_SEC}; margin-top:5px; line-height:1.5; }}
+
+/* ── KPI strip ── */
+.kpi-strip {{
+    background: linear-gradient(135deg, {CARD_BG} 0%, {CARD_BG2} 100%);
+    border: 1px solid {BORDER};
+    border-radius: 12px; padding: 16px 18px;
+    text-align: center; margin-bottom: 8px;
+    position: relative; overflow: hidden;
     transition: border-color 0.2s;
 }}
-.ticker-card:hover {{ border-color: {ACCENT}; }}
-.ticker-name {{ font-size: 0.78rem; color: {TEXT_SEC}; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }}
-.ticker-price {{ font-family: 'JetBrains Mono', monospace; font-size: 1.55rem; font-weight: 700; color: {TEXT_PRI}; line-height: 1.1; }}
-.ticker-change-up   {{ font-family: 'JetBrains Mono', monospace; font-size: 0.88rem; color: {GREEN}; font-weight: 600; }}
-.ticker-change-down {{ font-family: 'JetBrains Mono', monospace; font-size: 0.88rem; color: {RED};   font-weight: 600; }}
-.ticker-meta {{ font-size: 0.72rem; color: {TEXT_SEC}; margin-top: 4px; }}
-
-/* KPI strip */
-.kpi-strip {{
-    background: {CARD_BG}; border: 1px solid {BORDER};
-    border-radius: 10px; padding: 14px 20px;
-    text-align: center; margin-bottom: 6px;
+.kpi-strip:hover {{ border-color: {BORDER2}; }}
+.kpi-strip-val {{
+    font-family:'JetBrains Mono',monospace;
+    font-size:1.3rem; font-weight:700; color:{TEXT_PRI};
+    letter-spacing:-0.02em;
 }}
-.kpi-strip-val  {{ font-family:'JetBrains Mono',monospace; font-size:1.3rem; font-weight:700; color:{TEXT_PRI}; }}
-.kpi-strip-lbl  {{ font-size:0.70rem; color:{TEXT_SEC}; text-transform:uppercase; letter-spacing:0.07em; margin-top:3px; }}
-.kpi-strip-sub  {{ font-size:0.78rem; margin-top:2px; }}
+.kpi-strip-lbl {{
+    font-size:0.68rem; color:{TEXT_MUT}; text-transform:uppercase;
+    letter-spacing:0.10em; margin-top:4px; font-weight:500;
+}}
+.kpi-strip-sub {{ font-size:0.77rem; margin-top:3px; font-weight:500; }}
 
-/* Section header */
+/* ── Section header ── */
 .section-hdr {{
-    font-size: 0.72rem; font-weight: 700; color: {ACCENT};
-    letter-spacing: 0.15em; text-transform: uppercase;
-    border-bottom: 1px solid {BORDER}; padding-bottom: 8px;
-    margin: 22px 0 14px 0;
+    font-family: 'Playfair Display', serif;
+    font-size: 1.05rem; font-weight: 600; color: {TEXT_PRI};
+    display: flex; align-items: center; gap: 10px;
+    margin: 28px 0 16px 0; letter-spacing: 0.01em;
+}}
+.section-hdr::before {{
+    content:''; display:inline-block;
+    width:3px; height:22px; border-radius:2px; flex-shrink:0;
+    background: linear-gradient(180deg, {BLUE}, {ACCENT});
+}}
+.section-hdr::after {{
+    content:''; flex:1; height:1px;
+    background: linear-gradient(90deg, {BORDER2}, transparent);
+    margin-left:8px;
 }}
 
-/* Sentiment pill */
-.pill-pos  {{ display:inline-block; background:rgba(0,200,150,0.15); color:{GREEN};
-              border:1px solid {GREEN}; border-radius:20px; padding:2px 12px; font-size:0.78rem; font-weight:600; }}
-.pill-neg  {{ display:inline-block; background:rgba(255,75,110,0.15); color:{RED};
-              border:1px solid {RED};   border-radius:20px; padding:2px 12px; font-size:0.78rem; font-weight:600; }}
-.pill-neu  {{ display:inline-block; background:rgba(156,163,175,0.15); color:{TEXT_SEC};
-              border:1px solid {BORDER}; border-radius:20px; padding:2px 12px; font-size:0.78rem; font-weight:600; }}
+/* ── Sentiment pills ── */
+.pill-pos {{
+    display:inline-block;
+    background:rgba(0,217,139,0.12); color:{GREEN};
+    border:1px solid rgba(0,217,139,0.30);
+    border-radius:20px; padding:3px 14px; font-size:0.77rem; font-weight:600;
+}}
+.pill-neg {{
+    display:inline-block;
+    background:rgba(255,75,110,0.12); color:{RED};
+    border:1px solid rgba(255,75,110,0.30);
+    border-radius:20px; padding:3px 14px; font-size:0.77rem; font-weight:600;
+}}
+.pill-neu {{
+    display:inline-block;
+    background:rgba(122,149,176,0.12); color:{TEXT_SEC};
+    border:1px solid {BORDER2};
+    border-radius:20px; padding:3px 14px; font-size:0.77rem; font-weight:600;
+}}
 
-/* Alert box */
+/* ── Alert / info boxes ── */
 .alert-box {{
-    background: rgba(245,166,35,0.10); border-left: 3px solid {GOLD};
-    padding: 12px 16px; border-radius: 0 8px 8px 0;
-    font-size: 0.85rem; color: {TEXT_PRI}; margin: 10px 0;
+    background: linear-gradient(135deg, rgba(245,166,35,0.08), rgba(245,166,35,0.04));
+    border-left: 3px solid {GOLD};
+    padding: 13px 18px; border-radius: 0 10px 10px 0;
+    font-size: 0.86rem; color: {TEXT_SEC}; margin: 12px 0; line-height: 1.6;
+}}
+.info-box {{
+    background: linear-gradient(135deg, rgba(56,191,255,0.08), rgba(56,191,255,0.04));
+    border-left: 3px solid {BLUE};
+    padding: 13px 18px; border-radius: 0 10px 10px 0;
+    font-size: 0.86rem; color: {TEXT_SEC}; margin: 12px 0; line-height: 1.6;
+}}
+.success-box {{
+    background: linear-gradient(135deg, rgba(0,217,139,0.08), rgba(0,217,139,0.04));
+    border-left: 3px solid {GREEN};
+    padding: 13px 18px; border-radius: 0 10px 10px 0;
+    font-size: 0.86rem; color: {TEXT_SEC}; margin: 12px 0; line-height: 1.6;
 }}
 .model-badge {{
-    display:inline-block; background:rgba(30,144,255,0.15); color:{BLUE};
-    border:1px solid {BLUE}; border-radius:6px; padding:2px 10px;
-    font-size:0.72rem; font-weight:600; margin:2px;
+    display:inline-block; background:rgba(56,191,255,0.12); color:{BLUE};
+    border:1px solid rgba(56,191,255,0.25); border-radius:6px; padding:3px 10px;
+    font-size:0.72rem; font-weight:600; font-family:'JetBrains Mono',monospace;
+    letter-spacing:0.03em; margin:2px;
 }}
 
-/* Dark plotly override */
-[data-testid="stPlotlyChart"] {{ background: transparent !important; }}
-div[data-testid="stTabs"] button {{ color: {TEXT_SEC} !important; font-size:0.82rem; }}
-div[data-testid="stTabs"] button[aria-selected="true"] {{ color:{ACCENT} !important; border-bottom-color:{ACCENT} !important; }}
+/* ── Tabs ── */
+[data-testid="stPlotlyChart"] {{ background: transparent !important; border:1px solid {BORDER}; border-radius:12px; overflow:hidden; }}
+div[data-testid="stTabs"] button {{
+    color: {TEXT_SEC} !important; font-size:0.83rem; font-weight:500;
+    border-bottom: 2px solid transparent !important;
+    transition: all 0.2s;
+}}
+div[data-testid="stTabs"] button:hover {{ color: {TEXT_PRI} !important; }}
+div[data-testid="stTabs"] button[aria-selected="true"] {{
+    color:{ACCENT} !important; border-bottom-color:{ACCENT} !important; font-weight:600 !important;
+}}
 
-/* Scrolling marquee for live prices */
+/* ── Progress bar ── */
+[data-testid="stProgressBar"] > div {{
+    background: linear-gradient(90deg, {BLUE}, {ACCENT}) !important; border-radius:4px;
+}}
+
+/* ── Inputs ── */
+input, select, textarea {{ background: {CARD_BG} !important; color: {TEXT_PRI} !important; border-color:{BORDER} !important; }}
+
+/* ── Dataframes ── */
+[data-testid="stDataFrame"] {{ border:1px solid {BORDER}; border-radius:10px; overflow:hidden; }}
+[data-testid="stDataFrame"] th {{ background:{CARD_BG2} !important; color:{TEXT_SEC} !important; font-size:0.78rem !important; text-transform:uppercase; letter-spacing:0.06em; }}
+[data-testid="stDataFrame"] td {{ font-size:0.85rem !important; color:{TEXT_PRI} !important; }}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {{ width:5px; height:5px; }}
+::-webkit-scrollbar-track {{ background:{DARK_BG}; }}
+::-webkit-scrollbar-thumb {{ background:{BORDER2}; border-radius:3px; }}
+::-webkit-scrollbar-thumb:hover {{ background:{TEXT_MUT}; }}
+
+/* ── Stat chip (new component) ── */
+.stat-chip {{
+    display:inline-flex; align-items:center; gap:5px;
+    background:{CARD_BG}; border:1px solid {BORDER};
+    border-radius:8px; padding:4px 12px;
+    font-size:0.78rem; color:{TEXT_SEC};
+    font-family:'JetBrains Mono',monospace;
+}}
+.stat-chip b {{ color:{TEXT_PRI}; }}
+
+/* ── Page title ── */
+.page-title {{
+    font-family:'Playfair Display',serif;
+    font-size:2rem; font-weight:700; color:{TEXT_PRI};
+    letter-spacing:-0.01em; line-height:1.15; margin-bottom:4px;
+}}
+.page-sub {{
+    font-size:0.82rem; color:{TEXT_SEC}; margin-bottom:20px; line-height:1.5;
+}}
+
+/* ── Marquee ticker ── */
 .marquee-wrap {{
-    background: #060912; border-top: 1px solid {BORDER}; border-bottom: 1px solid {BORDER};
-    overflow: hidden; padding: 8px 0; margin-bottom: 18px;
+    background: linear-gradient(90deg, #030710, {CARD_BG}, #030710);
+    border-top:1px solid {BORDER}; border-bottom:1px solid {BORDER};
+    overflow:hidden; padding:8px 0; margin-bottom:20px;
 }}
-.marquee-inner {{
-    display: flex; animation: marquee 60s linear infinite; white-space: nowrap;
-}}
+.marquee-inner {{ display:flex; animation:marquee 70s linear infinite; white-space:nowrap; }}
 .marquee-item {{
-    font-family:'JetBrains Mono',monospace; font-size:0.78rem;
-    padding: 0 28px; border-right: 1px solid {BORDER};
+    font-family:'JetBrains Mono',monospace; font-size:0.77rem;
+    padding:0 28px; border-right:1px solid {BORDER}; color:{TEXT_SEC};
 }}
-@keyframes marquee {{ 0% {{ transform: translateX(0); }} 100% {{ transform: translateX(-50%); }} }}
-
-input, select, textarea {{ background: {CARD_BG} !important; color: {TEXT_PRI} !important; }}
+@keyframes marquee {{ 0% {{ transform:translateX(0); }} 100% {{ transform:translateX(-50%); }} }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -195,13 +336,25 @@ PLOT_TEMPLATE = dict(
 
 def apply_theme(fig, height=420):
     fig.update_layout(
-        paper_bgcolor=DARK_BG, plot_bgcolor=DARK_BG,
-        font=dict(family="Sora, sans-serif", color=TEXT_PRI, size=12),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor=CARD_BG,
+        font=dict(family="Space Grotesk, sans-serif", color=TEXT_PRI, size=12),
         height=height, margin=dict(t=40,b=40,l=60,r=20),
-        legend=dict(bgcolor="rgba(0,0,0,0)", bordercolor=BORDER),
+        legend=dict(
+            bgcolor="rgba(13,21,37,0.85)", bordercolor=BORDER2,
+            borderwidth=1, font=dict(size=11, color=TEXT_SEC)),
+        hoverlabel=dict(
+            bgcolor=CARD_BG2, bordercolor=BORDER2,
+            font=dict(family="JetBrains Mono, monospace", size=12, color=TEXT_PRI)),
     )
-    fig.update_xaxes(gridcolor=BORDER, linecolor=BORDER, showgrid=True, zeroline=False)
-    fig.update_yaxes(gridcolor=BORDER, linecolor=BORDER, showgrid=True, zeroline=False)
+    fig.update_xaxes(
+        gridcolor=BORDER, linecolor=BORDER2, showgrid=True, zeroline=False,
+        tickfont=dict(color=TEXT_SEC, size=11),
+        title_font=dict(color=TEXT_SEC))
+    fig.update_yaxes(
+        gridcolor=BORDER, linecolor=BORDER2, showgrid=True, zeroline=False,
+        tickfont=dict(color=TEXT_SEC, size=11),
+        title_font=dict(color=TEXT_SEC))
     return fig
 
 
@@ -518,18 +671,40 @@ def build_sector_performance(quotes: dict) -> go.Figure:
 # SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════╝
 with st.sidebar:
+    # ── Brand ─────────────────────────────────────────────────────────────────
     st.markdown(f"""
-    <div style='padding:16px 0 8px 0;'>
-        <div style='font-family:JetBrains Mono;font-size:1.1rem;font-weight:700;color:{ACCENT};'>
-            📈 PHARMA INTEL
+    <div style='padding:20px 4px 12px;'>
+        <div style='font-family:Playfair Display,serif;font-size:1.45rem;font-weight:700;
+            background:linear-gradient(90deg,{BLUE},{ACCENT});
+            -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+            letter-spacing:-0.01em;line-height:1.1;'>
+            PharmaTracker
         </div>
-        <div style='font-size:0.72rem;color:{TEXT_SEC};margin-top:2px;'>
-            NSE · BSE · Live + AI Forecast
+        <div style='font-family:JetBrains Mono,monospace;font-size:0.68rem;
+            color:{TEXT_MUT};margin-top:5px;letter-spacing:0.10em;'>
+            NSE · BSE · LIVE INTELLIGENCE
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+    # ── Market status ─────────────────────────────────────────────────────────
+    now_ist = datetime.now()   # approximate — server may not be IST
+    hour = now_ist.hour; weekday = now_ist.weekday()
+    market_open = (weekday < 5) and (9 <= hour < 16)   # rough IST approximation
+    mstatus = ("🟢 Market Open", GREEN) if market_open else ("🔴 Market Closed", RED)
+    st.markdown(f"""
+    <div style='background:{CARD_BG};border:1px solid {BORDER};border-radius:10px;
+        padding:10px 14px;margin-bottom:4px;display:flex;align-items:center;gap:8px;'>
+        <div style='font-size:0.78rem;color:{mstatus[1]};font-weight:600;'>{mstatus[0]}</div>
+        <div style='font-size:0.70rem;color:{TEXT_MUT};margin-left:auto;
+            font-family:JetBrains Mono,monospace;'>NSE 9:15–15:30 IST</div>
+    </div>
+    """, unsafe_allow_html=True)
+
     st.divider()
 
+    # ── Navigation ────────────────────────────────────────────────────────────
+    st.markdown(f"<div style='font-size:0.68rem;color:{TEXT_MUT};text-transform:uppercase;letter-spacing:0.10em;margin-bottom:6px;font-weight:600;'>NAVIGATION</div>", unsafe_allow_html=True)
     page = st.radio("", [
         "🏠  Market Overview",
         "📊  Live Stock Tracker",
@@ -542,29 +717,98 @@ with st.sidebar:
 
     st.divider()
 
-    # Company selector (used across pages)
+    # ── Company selector ──────────────────────────────────────────────────────
+    st.markdown(f"<div style='font-size:0.68rem;color:{TEXT_MUT};text-transform:uppercase;letter-spacing:0.10em;margin-bottom:6px;font-weight:600;'>SELECTED COMPANY</div>", unsafe_allow_html=True)
     company_labels = [f"{v[0]} ({k.replace('.NS','')})"
                       for k,v in PHARMA_COMPANIES.items()]
-    selected_label = st.selectbox("Select Company", company_labels,
-                                   label_visibility="visible")
+    selected_label = st.selectbox("", company_labels, label_visibility="collapsed")
     sel_idx     = company_labels.index(selected_label)
     sel_ticker  = list(PHARMA_COMPANIES.keys())[sel_idx]
-    sel_name    = PHARMA_COMPANIES[sel_ticker][0]
+    sel_name, sel_bse, sel_cap = PHARMA_COMPANIES[sel_ticker]
+
+    # Mini company badge
+    cap_color = BLUE if sel_cap=="Large Cap" else (GOLD if sel_cap=="Mid Cap" else TEXT_SEC)
+    st.markdown(f"""
+    <div style='background:{CARD_BG};border:1px solid {BORDER};border-radius:10px;
+        padding:10px 14px;margin-top:4px;'>
+        <div style='font-size:0.80rem;font-weight:600;color:{TEXT_PRI};'>{sel_name}</div>
+        <div style='display:flex;gap:8px;margin-top:5px;flex-wrap:wrap;'>
+            <span style='font-family:JetBrains Mono,monospace;font-size:0.68rem;
+                color:{BLUE};background:rgba(56,191,255,0.10);padding:2px 8px;
+                border-radius:4px;border:1px solid rgba(56,191,255,0.20);'>
+                NSE: {sel_ticker.replace(".NS","")}
+            </span>
+            <span style='font-family:JetBrains Mono,monospace;font-size:0.68rem;
+                color:{GOLD};background:rgba(245,166,35,0.10);padding:2px 8px;
+                border-radius:4px;border:1px solid rgba(245,166,35,0.20);'>
+                BSE: {sel_bse}
+            </span>
+            <span style='font-size:0.68rem;color:{cap_color};
+                background:rgba(122,149,176,0.10);padding:2px 8px;
+                border-radius:4px;border:1px solid {BORDER2};'>
+                {sel_cap}
+            </span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     st.divider()
+
+    # ── Universe stats ────────────────────────────────────────────────────────
+    large = sum(1 for v in PHARMA_COMPANIES.values() if v[2]=="Large Cap")
+    mid   = sum(1 for v in PHARMA_COMPANIES.values() if v[2]=="Mid Cap")
+    small = sum(1 for v in PHARMA_COMPANIES.values() if v[2]=="Small Cap")
     st.markdown(f"""
-    <div style='font-size:0.70rem;color:{TEXT_SEC};line-height:1.6;'>
-    <b style='color:{ACCENT};'>Data Sources</b><br>
-    • yfinance (NSE/BSE)<br>
-    • Google Finance RSS<br>
-    • Nifty Pharma Index<br><br>
-    <b style='color:{ACCENT};'>Refresh Rates</b><br>
-    • Prices: 5 min cache<br>
-    • History: 15 min cache<br>
-    • Predictions: 24h cache<br><br>
-    <b style='color:{ACCENT};'>Disclaimer</b><br>
-    For research only.<br>
-    Not financial advice.
+    <div style='font-size:0.68rem;color:{TEXT_MUT};text-transform:uppercase;
+        letter-spacing:0.10em;margin-bottom:8px;font-weight:600;'>COVERAGE UNIVERSE</div>
+    <div style='display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:10px;'>
+        <div style='background:{CARD_BG};border:1px solid {BORDER};border-radius:8px;
+            padding:8px 10px;text-align:center;'>
+            <div style='font-family:JetBrains Mono,monospace;font-size:1.1rem;
+                font-weight:700;color:{TEXT_PRI};'>{len(PHARMA_COMPANIES)}</div>
+            <div style='font-size:0.66rem;color:{TEXT_MUT};text-transform:uppercase;
+                letter-spacing:0.07em;margin-top:2px;'>Companies</div>
+        </div>
+        <div style='background:{CARD_BG};border:1px solid {BORDER};border-radius:8px;
+            padding:8px 10px;text-align:center;'>
+            <div style='font-family:JetBrains Mono,monospace;font-size:1.1rem;
+                font-weight:700;color:{BLUE};'>{large}</div>
+            <div style='font-size:0.66rem;color:{TEXT_MUT};text-transform:uppercase;
+                letter-spacing:0.07em;margin-top:2px;'>Large Cap</div>
+        </div>
+        <div style='background:{CARD_BG};border:1px solid {BORDER};border-radius:8px;
+            padding:8px 10px;text-align:center;'>
+            <div style='font-family:JetBrains Mono,monospace;font-size:1.1rem;
+                font-weight:700;color:{GOLD};'>{mid}</div>
+            <div style='font-size:0.66rem;color:{TEXT_MUT};text-transform:uppercase;
+                letter-spacing:0.07em;margin-top:2px;'>Mid Cap</div>
+        </div>
+        <div style='background:{CARD_BG};border:1px solid {BORDER};border-radius:8px;
+            padding:8px 10px;text-align:center;'>
+            <div style='font-family:JetBrains Mono,monospace;font-size:1.1rem;
+                font-weight:700;color:{TEXT_SEC};'>{small}</div>
+            <div style='font-size:0.66rem;color:{TEXT_MUT};text-transform:uppercase;
+                letter-spacing:0.07em;margin-top:2px;'>Small Cap</div>
+        </div>
+    </div>
+    <div style='font-size:0.68rem;color:{TEXT_MUT};text-transform:uppercase;
+        letter-spacing:0.10em;margin:10px 0 6px;font-weight:600;'>CACHE TTL</div>
+    <div style='font-size:0.73rem;color:{TEXT_SEC};line-height:1.7;'>
+        <span style='color:{TEXT_MUT};'>Prices</span>
+        <span style='float:right;font-family:JetBrains Mono,monospace;color:{GREEN};'>5 min</span><br>
+        <span style='color:{TEXT_MUT};'>History</span>
+        <span style='float:right;font-family:JetBrains Mono,monospace;color:{BLUE};'>15 min</span><br>
+        <span style='color:{TEXT_MUT};'>Fundamentals</span>
+        <span style='float:right;font-family:JetBrains Mono,monospace;color:{GOLD};'>1 hr</span><br>
+        <span style='color:{TEXT_MUT};'>News</span>
+        <span style='float:right;font-family:JetBrains Mono,monospace;color:{PURPLE};'>1 hr</span>
+    </div>
+    <div style='margin-top:14px;padding:10px 12px;background:rgba(255,75,110,0.06);
+        border:1px solid rgba(255,75,110,0.15);border-radius:8px;'>
+        <div style='font-size:0.70rem;color:{TEXT_MUT};line-height:1.5;'>
+            ⚠️ Prices ~15 min delayed via yfinance.<br>
+            For research use only. Not financial advice.
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -573,9 +817,16 @@ with st.sidebar:
 # PAGE: MARKET OVERVIEW
 # ══════════════════════════════════════════════════════════════════════════════╝
 if "Overview" in page:
-    st.markdown(f"<h1 style='font-size:1.8rem;font-weight:700;'>🏠 Indian Pharma Market Overview</h1>", unsafe_allow_html=True)
-    now = datetime.now().strftime("%d %b %Y, %I:%M %p IST")
-    st.markdown(f"<div style='font-size:0.78rem;color:{TEXT_SEC};margin-bottom:18px;'>Last updated: {now} &nbsp;·&nbsp; Prices ~5 min delayed</div>", unsafe_allow_html=True)
+    now = datetime.now().strftime("%d %b %Y, %I:%M %p")
+    st.markdown(f"""
+    <div class='page-title'>🏠 Indian Pharma Market</div>
+    <div class='page-sub'>
+        Live NSE/BSE tracker · {len(PHARMA_COMPANIES)} listed companies · 
+        <span style='font-family:JetBrains Mono,monospace;color:{TEXT_MUT};font-size:0.80rem;'>
+        Updated {now} IST &nbsp;·&nbsp; ~15 min delayed
+        </span>
+    </div>
+    """, unsafe_allow_html=True)
 
     # ── Index strip ───────────────────────────────────────────────────────────
     st.markdown(f"<div class='section-hdr'>MARKET INDICES</div>", unsafe_allow_html=True)
@@ -687,8 +938,8 @@ if "Overview" in page:
 # PAGE: LIVE STOCK TRACKER
 # ══════════════════════════════════════════════════════════════════════════════╝
 elif "Live Stock" in page:
-    st.markdown(f"<h1 style='font-size:1.8rem;font-weight:700;'>📊 {sel_name}</h1>", unsafe_allow_html=True)
-    st.markdown(f"<div style='font-size:0.78rem;color:{TEXT_SEC};margin-bottom:12px;'>{sel_ticker} &nbsp;·&nbsp; NSE &nbsp;·&nbsp; BSE {PHARMA_COMPANIES[sel_ticker][1]}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='page-title'>📊 {sel_name}</div><div class='page-sub'>Live quote · Fundamentals · Price history · Volume · 52W range</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='font-size:0.78rem;color:{TEXT_SEC};margin-bottom:12px;'>{sel_ticker} &nbsp;·&nbsp; NSE &nbsp;·&nbsp; BSE {sel_bse}</div>", unsafe_allow_html=True)
 
     # ── Auto-refresh toggle (no extra package — uses st.rerun) ────────────────
     col_ref1, col_ref2, _ = st.columns([1, 1, 6])
@@ -726,7 +977,7 @@ elif "Live Stock" in page:
         <div style='font-size:0.78rem;color:{TEXT_SEC};margin-top:8px;'>
             Prev Close: ₹{q.get('prev_close','N/A')} &nbsp;·&nbsp;
             Open: ₹{q.get('open') or 'N/A'} &nbsp;·&nbsp;
-            {PHARMA_COMPANIES[sel_ticker][2]}
+            {sel_cap}
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -765,24 +1016,58 @@ elif "Live Stock" in page:
                 <div class='kpi-strip-val' style='font-size:1.0rem;'>{val}</div>
                 <div class='kpi-strip-lbl'>{label}</div></div>""", unsafe_allow_html=True)
 
+    # ── KPI row 3: additional financials ─────────────────────────────────────
+    c1,c2,c3,c4,c5,c6 = st.columns(6)
+    de  = q.get("debt_equity"); cr  = q.get("revenue")
+    dy  = q.get("div_yield");   av  = q.get("avg_volume")
+    mc  = q.get("market_cap");  wh  = q.get("week52_high"); wl = q.get("week52_low")
+    pct_from_high = ((price - wh) / wh * 100) if (wh and price) else None
+    kpis3 = [
+        ("Debt / Equity",   f"{de:.1f}" if de else "N/A"),
+        ("Revenue",         fmt_number(cr) if cr else "N/A"),
+        ("Div. Yield",      f"{dy*100:.2f}%" if dy else "N/A"),
+        ("Avg Volume",      fmt_number(av, "") if av else "N/A"),
+        ("From 52W High",   f"{pct_from_high:.1f}%" if pct_from_high else "N/A"),
+        ("Exchange",        q.get("exchange","NSE")),
+    ]
+    for col_obj, (label, val) in zip([c1,c2,c3,c4,c5,c6], kpis3):
+        with col_obj:
+            st.markdown(f"""<div class='kpi-strip'>
+                <div class='kpi-strip-val' style='font-size:1.0rem;'>{val}</div>
+                <div class='kpi-strip-lbl'>{label}</div></div>""", unsafe_allow_html=True)
+
     # ── 52-week range ─────────────────────────────────────────────────────────
-    wh = q.get("week52_high"); wl = q.get("week52_low")
     if wh and wl and price:
         pct_pos = (price - wl) / (wh - wl) * 100
         st.markdown(f"<div class='section-hdr'>52-WEEK RANGE</div>", unsafe_allow_html=True)
         st.markdown(f"""
-        <div style='background:{CARD_BG};border:1px solid {BORDER};border-radius:10px;padding:16px 24px;'>
-            <div style='display:flex;justify-content:space-between;font-size:0.8rem;color:{TEXT_SEC};margin-bottom:8px;'>
-                <span>52W Low: <b style='color:{GREEN};'>₹{wl:,.2f}</b></span>
-                <span>Current: <b style='color:{TEXT_PRI};'>₹{price:,.2f}</b> ({pct_pos:.0f}% of range)</span>
-                <span>52W High: <b style='color:{RED};'>₹{wh:,.2f}</b></span>
+        <div style='background:linear-gradient(135deg,{CARD_BG},{CARD_BG2});
+            border:1px solid {BORDER};border-radius:12px;padding:18px 24px;'>
+            <div style='display:flex;justify-content:space-between;
+                font-size:0.82rem;color:{TEXT_SEC};margin-bottom:12px;'>
+                <span>52W Low &nbsp;<b style='color:{GREEN};font-family:JetBrains Mono,monospace;'>₹{wl:,.2f}</b></span>
+                <span style='color:{TEXT_PRI};font-weight:600;'>
+                    ₹{price:,.2f}
+                    <span style='font-size:0.74rem;color:{TEXT_MUT};font-weight:400;'>
+                    &nbsp;({pct_pos:.0f}% of range)
+                    </span>
+                </span>
+                <span>52W High &nbsp;<b style='color:{RED};font-family:JetBrains Mono,monospace;'>₹{wh:,.2f}</b></span>
             </div>
-            <div style='background:{BORDER};border-radius:4px;height:10px;position:relative;'>
+            <div style='background:{BORDER};border-radius:6px;height:8px;position:relative;'>
                 <div style='background:linear-gradient(90deg,{GREEN},{GOLD},{RED});
-                            border-radius:4px;height:100%;width:{pct_pos:.0f}%;'></div>
-                <div style='position:absolute;top:-4px;left:{pct_pos:.0f}%;
-                            width:18px;height:18px;background:{TEXT_PRI};border-radius:50%;
-                            transform:translateX(-50%);border:2px solid {DARK_BG};'></div>
+                    border-radius:6px;height:100%;width:{min(100,max(0,pct_pos)):.1f}%;
+                    transition:width 0.4s;'></div>
+                <div style='position:absolute;top:-5px;left:{min(100,max(0,pct_pos)):.1f}%;
+                    width:18px;height:18px;background:{TEXT_PRI};border-radius:50%;
+                    transform:translateX(-50%);border:2.5px solid {DARK_BG};
+                    box-shadow:0 0 8px rgba(0,217,139,0.4);'></div>
+            </div>
+            <div style='display:flex;justify-content:space-between;
+                font-size:0.70rem;color:{TEXT_MUT};margin-top:8px;'>
+                <span>Lowest in 52 weeks</span>
+                <span>Current</span>
+                <span>Highest in 52 weeks</span>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -796,28 +1081,72 @@ elif "Live Stock" in page:
         df_hist = fetch_history(sel_ticker, period=period_sel)
 
     if not df_hist.empty:
+        df_hi = add_indicators(df_hist)
         fig_area = go.Figure()
         close_arr = df_hist["Close"].values
         color_line = GREEN if close_arr[-1] >= close_arr[0] else RED
-        fig_area.add_trace(go.Scatter(x=df_hist.index, y=df_hist["Close"],
-            mode="lines", line=dict(color=color_line, width=2),
-            fill="tozeroy", fillcolor=f"rgba({_hex_rgb(color_line)},0.08)",
-            name="Close"))
-        apply_theme(fig_area, height=360)
-        fig_area.update_layout(hovermode="x unified",
-            xaxis_title="", yaxis_title="Price ₹",
-            xaxis_rangeslider_visible=False)
+
+        # Shaded area + price line
+        fig_area.add_trace(go.Scatter(
+            x=df_hi.index, y=df_hi["Close"],
+            mode="lines", line=dict(color=color_line, width=2.2),
+            fill="tozeroy", fillcolor=f"rgba({_hex_rgb(color_line)},0.07)",
+            name="Close",
+            hovertemplate="₹%{y:,.2f}<br>%{x|%d %b %Y}<extra>Close</extra>"))
+
+        # SMA overlays (only if enough data)
+        if len(df_hi) >= 20 and "SMA_20" in df_hi:
+            fig_area.add_trace(go.Scatter(
+                x=df_hi.index, y=df_hi["SMA_20"],
+                line=dict(color=BLUE, width=1.2, dash="dot"),
+                name="SMA 20", opacity=0.7,
+                hovertemplate="SMA20: ₹%{y:,.2f}<extra></extra>"))
+        if len(df_hi) >= 50 and "SMA_50" in df_hi:
+            fig_area.add_trace(go.Scatter(
+                x=df_hi.index, y=df_hi["SMA_50"],
+                line=dict(color=GOLD, width=1.2, dash="dot"),
+                name="SMA 50", opacity=0.7,
+                hovertemplate="SMA50: ₹%{y:,.2f}<extra></extra>"))
+
+        apply_theme(fig_area, height=380)
+        fig_area.update_layout(
+            hovermode="x unified", xaxis_title="", yaxis_title="Price ₹",
+            xaxis_rangeslider_visible=False,
+            legend=dict(orientation="h", y=1.06, x=0, xanchor="left"))
         st.plotly_chart(fig_area, use_container_width=True)
+
+        # ── Stats bar under chart ─────────────────────────────────────────────
+        p_start = float(close_arr[0]); p_end = float(close_arr[-1])
+        pct_chg = (p_end - p_start) / p_start * 100
+        period_high = float(df_hist["High"].max()); period_low = float(df_hist["Low"].min())
+        avg_vol_period = float(df_hist["Volume"].mean())
+        st.markdown(f"""
+        <div style='display:flex;gap:6px;flex-wrap:wrap;margin:-8px 0 8px;'>
+            <div class='stat-chip'>Period Return
+                <b style='color:{GREEN if pct_chg>=0 else RED};'>{pct_chg:+.2f}%</b></div>
+            <div class='stat-chip'>Period High
+                <b>₹{period_high:,.2f}</b></div>
+            <div class='stat-chip'>Period Low
+                <b>₹{period_low:,.2f}</b></div>
+            <div class='stat-chip'>Avg Vol
+                <b>{fmt_number(avg_vol_period, "")}</b></div>
+            <div class='stat-chip'>Candles
+                <b>{len(df_hist):,}</b></div>
+        </div>
+        """, unsafe_allow_html=True)
 
     # ── Volume bar ────────────────────────────────────────────────────────────
     if not df_hist.empty:
         fig_vol = go.Figure()
         vol_c = [GREEN if df_hist["Close"].iloc[i]>=df_hist["Close"].iloc[max(0,i-1)] else RED
                  for i in range(len(df_hist))]
-        fig_vol.add_trace(go.Bar(x=df_hist.index, y=df_hist["Volume"],
-            marker_color=vol_c, name="Volume"))
-        apply_theme(fig_vol, height=200)
-        fig_vol.update_layout(margin=dict(t=20,b=30), title="Volume",
+        fig_vol.add_trace(go.Bar(
+            x=df_hist.index, y=df_hist["Volume"],
+            marker_color=vol_c, marker_opacity=0.7, name="Volume",
+            hovertemplate="Vol: %{y:,.0f}<br>%{x|%d %b %Y}<extra></extra>"))
+        apply_theme(fig_vol, height=190)
+        fig_vol.update_layout(
+            margin=dict(t=20,b=30), title=dict(text="Volume", font=dict(color=TEXT_SEC, size=12)),
             xaxis_rangeslider_visible=False)
         st.plotly_chart(fig_vol, use_container_width=True)
 
@@ -826,7 +1155,7 @@ elif "Live Stock" in page:
 # PAGE: CANDLESTICK & TECHNICALS
 # ══════════════════════════════════════════════════════════════════════════════╝
 elif "Candlestick" in page:
-    st.markdown(f"<h1 style='font-size:1.8rem;font-weight:700;'>🕯️ Technical Analysis — {sel_name}</h1>", unsafe_allow_html=True)
+    st.markdown(f"<div class='page-title'>🕯️ Technical Analysis</div><div class='page-sub'>{sel_name} · Candlestick · MACD · Bollinger Bands · RSI · Return Distribution</div>", unsafe_allow_html=True)
 
     period_sel = st.radio("Period", ["3mo","6mo","1y","2y"], horizontal=True, key="candle_period", index=1)
     with st.spinner("Building chart..."):
@@ -890,7 +1219,7 @@ elif "Candlestick" in page:
 # PAGE: PHARMA INTELLIGENCE
 # ══════════════════════════════════════════════════════════════════════════════╝
 elif "Pharma Intel" in page:
-    st.markdown(f"<h1 style='font-size:1.8rem;font-weight:700;'>🧬 Pharma Intelligence — {sel_name}</h1>", unsafe_allow_html=True)
+    st.markdown(f"<div class='page-title'>🧬 Pharma Intelligence</div><div class='page-sub'>{sel_name} · Drug Pipeline · Peer Valuation Scorecard · Institutional & FII/DII Holdings</div>", unsafe_allow_html=True)
     st.markdown(f"<div style='font-size:0.78rem;color:{TEXT_SEC};margin-bottom:18px;'>Drug Pipeline · Peer Valuation · Institutional Holdings · FII/DII Flows</div>", unsafe_allow_html=True)
 
     intel_tab1, intel_tab2, intel_tab3 = st.tabs([
@@ -1583,7 +1912,7 @@ elif "Pharma Intel" in page:
 # PAGE: NEWS & SENTIMENT
 # ══════════════════════════════════════════════════════════════════════════════╝
 elif "News" in page:
-    st.markdown(f"<h1 style='font-size:1.8rem;font-weight:700;'>🗞️ News & Sentiment — {sel_name}</h1>", unsafe_allow_html=True)
+    st.markdown(f"<div class='page-title'>🗞️ News & Sentiment</div><div class='page-sub'>{sel_name} · Headlines · Sentiment scoring · Sector comparison</div>", unsafe_allow_html=True)
 
     with st.spinner("Fetching news..."):
         news = fetch_news_sentiment(sel_name)
@@ -1676,7 +2005,7 @@ elif "News" in page:
 # PAGE: CORRELATION & RISK
 # ══════════════════════════════════════════════════════════════════════════════╝
 elif "Correlation" in page:
-    st.markdown(f"<h1 style='font-size:1.8rem;font-weight:700;'>📐 Correlation & Risk Analysis</h1>", unsafe_allow_html=True)
+    st.markdown(f"<div class='page-title'>📐 Correlation & Risk</div><div class='page-sub'>Weekly return correlation · Sharpe ratio · VaR · Max drawdown · Rolling volatility</div>", unsafe_allow_html=True)
 
     cap_filter = st.multiselect("Filter by Market Cap",
         ["Large Cap","Mid Cap","Small Cap"],
@@ -1744,7 +2073,7 @@ elif "Correlation" in page:
 # PAGE: FUNDAMENTALS DEEP DIVE
 # ══════════════════════════════════════════════════════════════════════════════╝
 elif "Fundamentals" in page:
-    st.markdown(f"<h1 style='font-size:1.8rem;font-weight:700;'>📋 Fundamentals — {sel_name}</h1>", unsafe_allow_html=True)
+    st.markdown(f"<div class='page-title'>📋 Fundamentals</div><div class='page-sub'>{sel_name} · Valuation · Profitability · Peer comparison · Quarterly financials</div>", unsafe_allow_html=True)
 
     with st.spinner("Loading financials..."):
         q    = fetch_live_quote(sel_ticker)
@@ -1834,7 +2163,89 @@ elif "Fundamentals" in page:
                 color_continuous_scale=[[0,RED],[0.5,GOLD],[1,GREEN]],
                 labels={"pe":"P/E Ratio","pb":"P/B Ratio","mktcap":"Mkt Cap (B)","roe":"ROE %"},
                 hover_data={"pe":":.1f","pb":":.1f","mktcap":":.1f","roe":":.1f"})
-            fig_bub.update_traces(textposition="top center", textfont_size=9)
+            fig_bub.update_traces(
+                textposition="top center",
+                textfont=dict(size=9, color=TEXT_SEC))
             apply_theme(fig_bub, height=520)
-            fig_bub.update_layout(title="P/E vs P/B — Size = Market Cap | Color = ROE%")
+            fig_bub.update_layout(
+                title=dict(text="P/E vs P/B — Size = Market Cap  ·  Color = ROE%",
+                           font=dict(color=TEXT_SEC, size=12)))
             st.plotly_chart(fig_bub, use_container_width=True)
+
+    # ── Quarterly financials ──────────────────────────────────────────────────
+    st.markdown(f"<div class='section-hdr'>QUARTERLY FINANCIALS</div>", unsafe_allow_html=True)
+    if fins:
+        try:
+            income = fins.get("income")
+            if income is not None and not income.empty:
+                # Transpose so columns = quarters, rows = line items
+                inc_t = income.T.copy()
+                inc_t.index = pd.to_datetime(inc_t.index)
+                inc_t = inc_t.sort_index()
+
+                # Pick the most useful rows if available
+                row_map = {
+                    "Total Revenue":       ("Revenue", BLUE),
+                    "Gross Profit":        ("Gross Profit", GREEN),
+                    "Operating Income":    ("Operating Income", GOLD),
+                    "Net Income":          ("Net Income", ACCENT),
+                    "EBITDA":              ("EBITDA", PURPLE),
+                }
+                available = {k: v for k, v in row_map.items() if k in inc_t.columns}
+
+                if available:
+                    fig_fin = go.Figure()
+                    for raw_name, (label, color) in available.items():
+                        vals = pd.to_numeric(inc_t[raw_name], errors="coerce").dropna()
+                        if vals.empty: continue
+                        fig_fin.add_trace(go.Bar(
+                            x=[d.strftime("%b '%y") for d in vals.index],
+                            y=vals.values / 1e7,   # convert to Cr
+                            name=label,
+                            marker_color=color,
+                            opacity=0.85,
+                            hovertemplate=f"<b>{label}</b><br>₹%{{y:,.1f}} Cr<br>%{{x}}<extra></extra>",
+                        ))
+                    apply_theme(fig_fin, height=360)
+                    fig_fin.update_layout(
+                        barmode="group",
+                        yaxis_title="₹ Crore",
+                        xaxis_title="Quarter",
+                        legend=dict(orientation="h", y=1.08, x=0, xanchor="left"),
+                        margin=dict(t=20, b=40))
+                    st.plotly_chart(fig_fin, use_container_width=True)
+
+                    # Key quarterly metrics table
+                    if "Total Revenue" in inc_t.columns and "Net Income" in inc_t.columns:
+                        rev  = pd.to_numeric(inc_t["Total Revenue"], errors="coerce")
+                        ni   = pd.to_numeric(inc_t["Net Income"],    errors="coerce")
+                        gp   = pd.to_numeric(inc_t.get("Gross Profit",   pd.Series(dtype=float)), errors="coerce")
+                        ebit = pd.to_numeric(inc_t.get("Operating Income", pd.Series(dtype=float)), errors="coerce")
+
+                        fin_rows = []
+                        for dt in rev.dropna().index[-6:]:
+                            r = float(rev.get(dt, 0) or 0) / 1e7
+                            n = float(ni.get(dt, 0) or 0) / 1e7
+                            g = float(gp.get(dt, 0) or 0) / 1e7 if dt in gp.index else None
+                            e = float(ebit.get(dt, 0) or 0) / 1e7 if dt in ebit.index else None
+                            npm = (n / r * 100) if r else None
+                            fin_rows.append({
+                                "Quarter":       dt.strftime("%b '%y"),
+                                "Revenue (₹Cr)": f"₹{r:,.1f}" if r else "N/A",
+                                "Net Income (₹Cr)": f"₹{n:,.1f}" if n else "N/A",
+                                "Net Margin":    f"{npm:.1f}%" if npm else "N/A",
+                                "Gross Profit (₹Cr)": f"₹{g:,.1f}" if g else "N/A",
+                                "Op. Income (₹Cr)":   f"₹{e:,.1f}" if e else "N/A",
+                            })
+                        if fin_rows:
+                            st.dataframe(
+                                pd.DataFrame(fin_rows).set_index("Quarter"),
+                                use_container_width=True, height=250)
+                else:
+                    st.markdown(f"<div class='info-box'>Quarterly income statement data not available for {sel_name} via yfinance.</div>", unsafe_allow_html=True)
+            else:
+                st.markdown(f"<div class='info-box'>Quarterly financials not available for {sel_name}. This is common for NSE-listed companies on yfinance free tier.</div>", unsafe_allow_html=True)
+        except Exception as e:
+            st.markdown(f"<div class='alert-box'>Could not parse financials: {str(e)[:120]}</div>", unsafe_allow_html=True)
+    else:
+        st.markdown(f"<div class='info-box'>Financial data unavailable for {sel_name}. Try again in a few seconds.</div>", unsafe_allow_html=True)
